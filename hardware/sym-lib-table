@@ -1,0 +1,5 @@
+(sym_lib_table
+  (lib (name promicro)(type Legacy)(uri ${KIPRJMOD}/promicro.lib)(options "")(descr ""))
+  (lib (name Custom)(type Legacy)(uri ${KIPRJMOD}/Custom.lib)(options "")(descr ""))
+  (lib (name Teensy)(type Legacy)(uri /Users/maartenr/Documents/Breadboard/teensy.lib)(options "")(descr ""))
+)

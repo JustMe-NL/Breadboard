@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"name": "BreadBoard",
+			"path": "../../../PlatformIO/Projects/BreadBoard"
+		}
+	],
+	"settings": {
+		"workbench.startupEditor": "none"
+	}
+}
