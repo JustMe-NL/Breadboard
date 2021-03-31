@@ -743,6 +743,7 @@ void pulseGenerator() {
   uint8_t mycol;
   if (firstrun) {
     firstrun = false;
+    enableGPIO();
     usHertz = false;
     encoder.sw = false;
     setValue = 10;

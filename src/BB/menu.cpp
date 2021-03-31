@@ -1091,6 +1091,7 @@ void processMenu() {
           sysState = MENUFREQONOFF;
           menuoptions = OPTIONSOK;
           options = OPTIONOK;
+          disableGPIO();
         }
         break;
       case MENUFREQINFO:
@@ -1187,6 +1188,7 @@ void processMenu() {
       case MENUSERVOINFOACTIVE:
         showInfo(infoServo);
         if (options == OK) { 
+          disableGPIO();
           menuoptions = OPTIONSOK;
           sysState = MENUSERIALINFO;
           options = OPTIONOK;
@@ -1211,8 +1213,6 @@ void processMenu() {
       case MENUSETPINSSETVALUEACTIVE:  //  special
           getUserValue();
           if ((options == OK) || (options == CANCEL)) { 
-            bytePins = setValue;
-            writeToExpander(bytePins);
             sysState = MENUSETPINS;
             menuoptions = OPTIONSOK;
             options = OPTIONOK;
