@@ -101,7 +101,8 @@ parameter_struct param;                           // parameters for avrisp
 // Encoder 100%
 // I2C Scanner
 //    monitor, capture, export
-// Logic Blocks 100%
+// Logic Blocks
+//    inverter, fix signal display
 // OneWire 100%
 // Pin monitor
 //    monitor, capture, export, 7-segments
