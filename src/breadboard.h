@@ -37,7 +37,7 @@
 #define MCP_ADDRESS                     0x20
 //#define PCF_ADDRESS2                    0x38               // PCF8574A
 #define PCF_ADDRESS2                    0x39               // PCF8574A
-#define PCF_ADDRESS                     0x20               // PCF8574
+#define PCF_ADDRESS                     0x38               // PCF8574
 #define OLEDADDRESS                     0x3C
 #define INA219ADD                       0x40
 

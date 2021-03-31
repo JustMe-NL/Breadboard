@@ -382,6 +382,11 @@ void getUserValue() {
     case VALUENONE:
       break;
   }
+
+  if (sysState == MENUSETPINSSETVALUEACTIVE) {
+    bytePins = setValue;
+    writeToExpander(bytePins);
+  }
 }
 
 //------------------------------------------------------------------------------ init get value
