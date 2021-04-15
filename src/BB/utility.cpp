@@ -396,10 +396,11 @@ void processLogic() {
 //------------------------------------------------------------------------------ OnwWire pullup
 void oneWirePullUp(bool OnOff) {
   if (OnOff) {
-    changePin(PULLUPONEWIRE, true);
+    digitalWrite(PULLUPSDA, HIGH);
     owPullUpActive = true;
+    i2cPullUp(false);
   } else {
-    changePin(PULLUPONEWIRE, false);
+    digitalWrite(PULLUPSDA, LOW);
     owPullUpActive = false;
   }
 }
@@ -407,12 +408,13 @@ void oneWirePullUp(bool OnOff) {
 //------------------------------------------------------------------------------ I2C pullup
 void i2cPullUp(bool OnOff) {
   if (OnOff) {
-    changePin(PULLUPSDA, true);
-    changePin(PULLUPSCL, true);
+    digitalWrite(PULLUPSDA, HIGH);
+    digitalWrite(PULLUPSCL, HIGH);
     i2cPullUpActive = true;
+    oneWirePullUp(false);
   } else {
-    changePin(PULLUPSDA, false);
-    changePin(PULLUPSCL, false);
+    digitalWrite(PULLUPSDA, LOW);
+    digitalWrite(PULLUPSCL, LOW);
     i2cPullUpActive = false;
   }
 }

@@ -95,24 +95,24 @@ void processCursor() {
             oled.print("10");   // 26-48 (27)
           }
         }
-        oled.setCursor(cursoron.blinkcol, cursoron.blinkrow);
-        if (cursoron.blinkstate) {
-          if (cursoron.blinktype) {
-            oled.fillRect(cursoron.blinkcol, cursoron.blinkrow - 10, 8, 12, SSD1306_BLACK);
-          } else {
-            oled.drawRect(cursoron.blinkcol, cursoron.blinkrow - 10, 8, 12, SSD1306_WHITE);
-            oled.print(cursoron.blinkchar);
-          }
-        } else {
-          oled.print(cursoron.blinkchar);
-        }
         if (sysState == MENULOGICACTIVE) {
-        
           position = 0 + (setValue * 64);
           if (cursoron.blinkstate) {
             oled.fillCircle(position + 36, 30, 4, SSD1306_WHITE);
           } else {
             oled.fillCircle(position + 36, 30, 4, SSD1306_BLACK);
+          }
+        } else {
+          oled.setCursor(cursoron.blinkcol, cursoron.blinkrow);
+          if (cursoron.blinkstate) {
+            if (cursoron.blinktype) {
+              oled.fillRect(cursoron.blinkcol, cursoron.blinkrow - 10, 8, 12, SSD1306_BLACK);
+            } else {
+              oled.drawRect(cursoron.blinkcol, cursoron.blinkrow - 10, 8, 12, SSD1306_WHITE);
+              oled.print(cursoron.blinkchar);
+            }
+          } else {
+            oled.print(cursoron.blinkchar);
           }
         }
         break;

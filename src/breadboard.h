@@ -45,7 +45,7 @@
 #define TXD1                            1                 // Serial 1
 #define PULLUPSDA                       2                 // Digital
 #define PULLUPSCL                       3                 // Digital
-#define PULLUPONEWIRE                   4                 // Digital
+#define COUNTPINEN                      4                 // Digital
 #define GPIO1                           5                 // Softwire OneWire, SDA & COUNTR
 #define GPIO2                           6                 // Softwire SCL
 #define myMOSI                          7                 // SPI Dout
@@ -355,7 +355,7 @@ extern FreqMeasureMulti freq1;
 extern PWMServo myservo;
 extern RingBuf<uint8_t, 256> SPI_In;
 extern RingBuf<uint8_t, 256> SPI_Out;
-extern RingBuf<capture_struct, 999> CaptureBuf;
+extern RingBuf<capture_struct, 4096> CaptureBuf;
 
 //------------------------------------------------------------------------------ enums & structs
 extern enum optionStates options;                        // Options states in userinput routine
@@ -479,7 +479,7 @@ const char infoDebounce[]  = PROGMEM {"Turn on to engage switch debouncing on SW
                                       "connections are necessary. When activated, the green LED will turn on.\0"};
 const char infoVoltmeter[] = PROGMEM {"Sorry, no information yet.\0"};                                  
 
-//------------------------------------------------------------------------------ bitmaps
+//------------------------------------------------------------------------------ graphic bitmaps
 // 'AND', 64x32px
 const unsigned char bmapAnd [] PROGMEM = {
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -606,7 +606,7 @@ const unsigned char bmapR [] PROGMEM = {
 };
 
 
-//------------------------------------------------------------------------------ prototype
+//------------------------------------------------------------------------------ prototypes
 #ifdef debug
 void serialdebug(int debugStep);
 void dumpBuffer();

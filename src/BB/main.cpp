@@ -23,7 +23,7 @@ FreqMeasureMulti freq1;                                                         
 PWMServo myservo;                                                               // PWM generato for Servo's
 RingBuf<uint8_t, 256> SPI_In;                                                   // Ringbuffer for SPI input
 RingBuf<uint8_t, 256> SPI_Out;                                                  // Ringbuffer for SPI output
-RingBuf<capture_struct, 999> CaptureBuf;                                        // Ringbuffer for measurments
+RingBuf<capture_struct, 4096> CaptureBuf;                                       // Ringbuffer for measurments
 
 //------------------------------------------------------------------------------ enums & structs
 
@@ -507,6 +507,9 @@ void setup() {
   pinMode(PDRTS, INPUT_PULLUP);
   pinMode(PDSLAVE, OUTPUT);
   digitalWrite(PDSLAVE, HIGH);
+  digitalWrite(COUNTPINEN, LOW);
+  i2cPullUp(false);
+  oneWirePullUp(false);
   analogReadAveraging(100);
   
   control.all = 0x00;
