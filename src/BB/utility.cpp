@@ -14,8 +14,7 @@
 // void showlogicPins(uint8_t myx, uint8_t curvalue, bool showPin3)
 // uint8_t calculateLogic(uint8_t myblocks, uint8_t myvalue, uint8_t myx)
 // void processLogic()
-// void oneWirePullUp(bool OnOff)
-// void i2cPullUp(bool OnOff)
+// void PullUp(bool OnOff)
 
 //------------------------------------------------------------------------------ Enable GPIO
 void enableGPIO() {
@@ -36,8 +35,7 @@ void disableGPIO() {
 #ifdef debug
   Serial.println("disable GPIO");
 #endif
-  oneWirePullUp(false);
-  i2cPullUp(false);
+  PullUp(false);
   if (control.gpioRelay) {
     control.gpioRelay = false;
     writeToExpander(bytePins, true);
@@ -159,83 +157,12 @@ float calculateVoltage(int measuredvoltage) {
 
 //------------------------------------------------------------------------------ set Pins to High or High-Z
 void changePin(uint8_t pin, bool state) {
+  volatile uint32_t *config;
   if (state) {
     digitalWrite(pin, HIGH);
   } else {
-    switch(pin) {
-      case 0:
-        CORE_PIN0_CONFIG = 0;
-        break;
-      case 1:
-        CORE_PIN1_CONFIG = 0;
-        break;
-      case 2:
-        CORE_PIN2_CONFIG = 0;
-        break;
-      case 3:
-        CORE_PIN3_CONFIG = 0;
-        break;
-      case 4:
-        CORE_PIN4_CONFIG = 0;
-        break;
-      case 5:
-        CORE_PIN5_CONFIG = 0;
-        break;
-      case 6:
-        CORE_PIN6_CONFIG = 0;
-        break;
-      case 7:
-        CORE_PIN7_CONFIG = 0;
-        break;
-      case 8:
-        CORE_PIN8_CONFIG = 0;
-        break;
-      case 9:
-        CORE_PIN9_CONFIG = 0;
-        break;
-      case 10:
-        CORE_PIN10_CONFIG = 0;
-        break;
-      case 11:
-        CORE_PIN11_CONFIG = 0;
-        break;
-      case 12:
-        CORE_PIN12_CONFIG = 0;
-        break;
-      case 13:
-        CORE_PIN13_CONFIG = 0;
-        break;
-      case 14:
-        CORE_PIN14_CONFIG = 0;
-        break;
-      case 15:
-        CORE_PIN15_CONFIG = 0;
-        break;
-      case 16:
-        CORE_PIN16_CONFIG = 0;
-        break;
-      case 17:
-        CORE_PIN17_CONFIG = 0;
-        break;
-      case 18:
-        CORE_PIN18_CONFIG = 0;
-        break;
-      case 19:
-        CORE_PIN19_CONFIG = 0;
-        break;    
-      case 20:
-        CORE_PIN20_CONFIG = 0;
-        break;
-      case 21:
-        CORE_PIN21_CONFIG = 0;
-        break;
-      case 22:
-        CORE_PIN22_CONFIG = 0;
-        break;
-      case 23:
-        CORE_PIN23_CONFIG = 0;
-        break;       
-    }
+    config = portConfigRegister(pin);
+    *config = 0;
   }
 }
 
@@ -394,27 +321,12 @@ void processLogic() {
 }
 
 //------------------------------------------------------------------------------ OnwWire pullup
-void oneWirePullUp(bool OnOff) {
+void PullUp(bool OnOff) {
   if (OnOff) {
-    digitalWrite(PULLUPSDA, HIGH);
-    owPullUpActive = true;
-    i2cPullUp(false);
+    digitalWrite(PULLUPEN, HIGH);
+    PullUpActive = true;
   } else {
-    digitalWrite(PULLUPSDA, LOW);
-    owPullUpActive = false;
-  }
-}
-
-//------------------------------------------------------------------------------ I2C pullup
-void i2cPullUp(bool OnOff) {
-  if (OnOff) {
-    digitalWrite(PULLUPSDA, HIGH);
-    digitalWrite(PULLUPSCL, HIGH);
-    i2cPullUpActive = true;
-    oneWirePullUp(false);
-  } else {
-    digitalWrite(PULLUPSDA, LOW);
-    digitalWrite(PULLUPSCL, LOW);
-    i2cPullUpActive = false;
+    digitalWrite(PULLUPEN, LOW);
+    PullUpActive = false;
   }
 }

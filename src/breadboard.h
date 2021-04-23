@@ -42,18 +42,18 @@
 #define INA219ADD                       0x40
 
 #define RXD1                            0                 // Serial 1 
-#define TXD1                            1                 // Serial 1
-#define PULLUPSDA                       2                 // Digital
-#define PULLUPSCL                       3                 // Digital
-#define COUNTPINEN                      4                 // Digital
-#define GPIO1                           5                 // Softwire OneWire, SDA & COUNTR
+#define TXD1                            1                 // Serial 1              
+#define PDRTS                           2                 // RTS Signal from PD Micro
+#define PDDTR                           3                 // DTR Signal from PD Micro
+#define TNC1                            4                 // Spare Digital PWM 
+#define GPIO1                           5                 // Softwire SDA, OneWire & COUNTR
 #define GPIO2                           6                 // Softwire SCL
 #define myMOSI                          7                 // SPI Dout
 #define myMISO                          8                 // SPI Din
 #define PDSLAVE                         9                 // SPI SS
-#define PDDTR                           10                // PD Micro DTR
+#define PULLUPEN                        12                // Pull Up enable on GPIO1&2
 #define PDINT                           11                // PD Micro interrupt
-#define PDRTS                           12                // PD Micro RTS
+#define COUNTEN                         10                // Pin 13 connected to GPIO1
 #define COUNTR                          13                // External LPTMR input
 #define mySCLK                          14                // SPI clock
 #define ENCB                            15                // Encoder pin B
@@ -62,15 +62,16 @@
 #define mySDA                           18                // Hardware SDA
 #define mySCL                           19                // Hardware SCL
 #define EXPINT                          20                // Expander interrupt
-#define NC3                             21                // Digital A7 PWM
-#define NC4                             22                // Digital A8 Touch PWM
+#define TNC2                            21                // Spare Digital A7 PWM
+#define TNC3                            22                // Spare Digital A8 PWM Touch
 #define VOLTSENSE                       23                // Stepper voltage
 
+#define beget16(addr) (*addr * 256 + *(addr+1) )          // avrisp
 #define PIN_RESET     	                4                 // PCF pin > attiny pin 1
 #define PIN_MOSI	                      5                 // PCF pin > attiny pin 5
 #define PIN_MISO	                      6                 // PCF pin > attiny pin 6
 #define PIN_SCK		                      7                 // PCF pin > attiny pin 7
-#define beget16(addr) (*addr * 256 + *(addr+1) )          // avrisp
+
 
 
 //------------------------------------------------------------------------------ enums
@@ -312,7 +313,6 @@ typedef union {
   };
 } control_struct;
 
-
 typedef struct param {
   uint8_t devicecode;
   uint8_t revision;
@@ -421,12 +421,12 @@ extern bool checklist[12];                            // what wend wrong with th
 extern bool newSPIdata_avail;                         // We recieved new SPI data
 extern bool slave_exit_mode;                          // Data in SPI_Out is irrelevant & flushed if thios flag is set, slave ends current mode 
 extern bool slowSlave;                                // Slave is running @ 8MHz
-extern bool owPullUpActive;                           // PullUp for OneWire is active
-extern bool i2cPullUpActive;                          // PullUp for I2C is active
+extern bool PullUpActive;                             // PullUp for is active
 extern bool lastclock;                                // previous clocksignal
 extern control_struct control;                        // status control expander
 extern elapsedMillis timeout;                         // timeout for requencumeasurements
 extern parameter_struct param;                        // parameters for avrisp
+extern capture_struct curByte;
 
 
 //------------------------------------------------------------------------------ constant vars
@@ -679,8 +679,7 @@ void displayESPProgrammer();
 void displayVoltmeter();
 float calculateVoltage(int measuredvoltage);
 void changePin(uint8_t pin, bool state);
-void oneWirePullUp(bool OnOff);
-void i2cPullUp(bool OnOff);
+void PullUp(bool OnOff);
 void processLogic();
 uint8_t calculateLogic(uint8_t myblocks, uint8_t myvalue, uint8_t myx);
 void display7Segment();

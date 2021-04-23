@@ -90,17 +90,17 @@ bool checklist[12];                               // what wend wrong with this c
 bool newSPIdata_avail;                            // We recieved new SPI data
 bool slave_exit_mode;                             // Data in SPI_Out is irrelevant & flushed if thios flag is set, slave ends current mode 
 bool slowSlave;                                   // Slave is running @ 8MHz
-bool owPullUpActive;                              // PullUp for OneWire is active
-bool i2cPullUpActive;                             // PullUp for I2C is active
+bool PullUpActive;                                // PullUp is active
 bool lastclock;                                   // previous clocksignal
 control_struct control;                           // status control expander
 elapsedMillis timeout;                            // timeout for requencumeasurements
 parameter_struct param;                           // parameters for avrisp
+capture_struct curByte;                           // current capture byte
 
 // Counter 100%
 // Encoder 100%
 // I2C Scanner
-//    monitor, capture, export
+//    monitor, capture, export (serial & keyboard?)
 // Logic Blocks
 //    inverter, fix signal display
 // OneWire 100%
@@ -112,6 +112,7 @@ parameter_struct param;                           // parameters for avrisp
 // Programmer 100%
 // Pulse generator 100%
 // Screen settings
+//    missing
 // Serial
 //    monitor
 // Servo 100%
@@ -127,6 +128,20 @@ void expanderInterrupt() {
 void counterInterrupt() {
   setValue++;
   countme = true;
+}
+
+void sdaInterrupt() {
+  curByte.time = micros();
+  curByte.value = (uint8_t) GPIOD_PDIR & 0x0090;
+  if (!CaptureBuf.isFull()) { CaptureBuf.push(curByte); }
+  curByte.state = curByte.value;
+}
+
+void sclInterrupt() {
+  curByte.time = micros();
+  curByte.value = (uint8_t) GPIOD_PDIR & 0x0090;
+  if (!CaptureBuf.isFull()) { CaptureBuf.push(curByte); }
+  curByte.state = curByte.value;
 }
 
 //------------------------------------------------------------------------------ set digit in value
@@ -505,11 +520,13 @@ void setup() {
   pinMode(PDINT, INPUT_PULLUP);
   pinMode(PDDTR, INPUT_PULLUP);
   pinMode(PDRTS, INPUT_PULLUP);
+  pinMode(PULLUPEN, OUTPUT);
+  digitalWrite(PULLUPEN, LOW);
+  pinMode(COUNTEN, OUTPUT);
+  digitalWrite(COUNTEN, LOW);
   pinMode(PDSLAVE, OUTPUT);
   digitalWrite(PDSLAVE, HIGH);
-  digitalWrite(COUNTPINEN, LOW);
-  i2cPullUp(false);
-  oneWirePullUp(false);
+  PullUp(false);
   analogReadAveraging(100);
   
   control.all = 0x00;
@@ -537,9 +554,7 @@ void setup() {
   slave_exit_mode = false;
   newSPIdata_avail = false;
   SPI.begin();
-
-  owPullUpActive = false;
-  i2cPullUpActive = false;
+  
   logicSet = 0x37;
 }
 

@@ -10,7 +10,9 @@ void oneWireScan() {
   uint8_t buffer0[9];                       // buffers for scratchpad register
 
   oled.setCursor(0, 32);
+  oled.fillRect(0, 16, 128, 32, SSD1306_BLACK);
   oled.print("scanning ...");
+  oled.display();
 
   setValue = 0;
   ds = new OneWire(GPIO1);
