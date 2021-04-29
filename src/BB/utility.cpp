@@ -3,6 +3,7 @@
 // void enableGPIO()
 // void disableGPIO()
 // void enableUSB2Serial()
+// void enableUSBKeyboard()
 // void disableSlaveModes()
 // void writeToExpander()
 // void readFromExpander()
@@ -47,21 +48,35 @@ void disableGPIO() {
 
 //------------------------------------------------------------------------------ Change piping mode PD
 void enableUSB2Serial(uint8_t mode) {
-  SPI_Out.push(EXITCOMMAND);
+  allSPIisData = false;
+  SPI_Out.push(cmdESC_ExitCommand);
   houseKeeping();
   control.serialRelay = 1;
-  SPI_Out.push(SET_BAUDRATE);
-  SPI_Out.push(baudRate);
-  houseKeeping();
   writeToExpander(writeByte, true);
-  SPI_Out.push(SERIALPIPING);
+  if (mode == modeUSB_Serial || mode == modeSPI_Serial) {
+    SPI_Out.push(cmdSetBaudRate);
+    SPI_Out.push(baudRate);
+    houseKeeping();
+  }
+  SPI_Out.push(cmdSerialPiping);
   SPI_Out.push(mode);
+  houseKeeping();
+}
+
+//------------------------------------------------------------------------------ Change piping mode PD
+void enableUSBKeyboard() {
+  allSPIisData = false;
+  SPI_Out.push(cmdESC_ExitCommand);
+  houseKeeping();
+  SPI_Out.push(cmdSerialPiping);
+  SPI_Out.push(modeSPI_Keyboard);
   houseKeeping();
 }
 
 //------------------------------------------------------------------------------ Disable all piping
 void disableSlaveModes() {
-  SPI_Out.push(EXITCOMMAND);
+  allSPIisData = false;
+  SPI_Out.push(cmdESC_ExitCommand);
   houseKeeping();
   control.serialRelay = 0;
   writeToExpander(writeByte, true);

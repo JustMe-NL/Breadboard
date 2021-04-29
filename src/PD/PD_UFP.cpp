@@ -12,7 +12,7 @@
  * Support PD3.0 PPS
  * 
  */
- 
+#include <arduino.h>
 #include <stdint.h>
 #include <string.h>
 

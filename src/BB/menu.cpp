@@ -408,10 +408,11 @@ void processMenu() {
         if (encoder.up) { sysState = MENUPROGRAMMEREXIT; }
         if (encoder.down) { sysState = MENUPROGESPONOFF; }
         if (encoder.sw) { 
-          enableUSB2Serial(USBSPI);
+          enableUSB2Serial(modeSPI_USB);
           disableGPIO();
           stopProg = false;
           firstrun = true;
+          allSPIisData = true;
           sysState = MENUPROGISPAVRACTIVE;
         }
         break;
@@ -419,10 +420,11 @@ void processMenu() {
         if (encoder.up) { sysState = MENUPROGISPAVRONOFF; }
         if (encoder.down) { sysState = MENUPROGRAMMERINFO; }
         if (encoder.sw) { 
-          enableUSB2Serial(USBSERIAL);
+          enableUSB2Serial(modeUSB_Serial);
           disableGPIO();
           stopProg = false;
           firstrun = true;
+          allSPIisData = true;
           sysState = MENUPROGESPACTIVE;
         }
         break;      
@@ -442,7 +444,7 @@ void processMenu() {
 //PulseGenerator
       case MENUFREQ:                 
         if (encoder.up) { sysState = MENUPROGRAMMER; }
-        if (encoder.down) { sysState = MENUSERIAL; }
+        if (encoder.down) { sysState = MENUSCREEN; }
         if (encoder.sw) { sysState = MENUFREQONOFF; } 
         break;
       case MENUFREQONOFF:
@@ -467,9 +469,36 @@ void processMenu() {
         if (encoder.down) { sysState = MENUFREQONOFF; }
         if (encoder.sw) { sysState = MENUFREQ; }
         break;
+//Screen
+      case MENUSCREEN:                 
+        if (encoder.up) { sysState = MENUFREQ; }
+        if (encoder.down) { sysState = MENUSERIAL; }
+        if (encoder.sw) { sysState = MENUSCREENSETTINGS; }
+        break;
+      case MENUSCREENSETTINGS:             
+        if (encoder.up) { sysState = MENUSCREENEXIT; }
+        if (encoder.down) { sysState = MENUSCREENINFO; }
+        if (encoder.sw) { 
+          firstrun = true;
+          sysState = MENUSCREENSETACTIVE; 
+        }
+        break;
+      case MENUSCREENINFO:             
+        if (encoder.up) { sysState = MENUSCREENSETTINGS; }
+        if (encoder.down) { sysState = MENUSCREENEXIT; }
+        if (encoder.sw) { 
+          firstrun = true;
+          sysState = MENUSCREENINFOACTIVE;
+        }
+        break;
+      case MENUSCREENEXIT:             
+        if (encoder.up) { sysState = MENUSCREENINFO; }
+        if (encoder.down) { sysState = MENUSCREENSETTINGS; }
+        if (encoder.sw) { sysState = MENUSCREEN; }
+        break;
 //Serial
       case MENUSERIAL:                 
-        if (encoder.up) { sysState = MENUFREQ; }
+        if (encoder.up) { sysState = MENUSCREEN; }
         if (encoder.down) { sysState = MENUSERVO; }
         if (encoder.sw) { sysState = MENUSERIALSETBAUD; }
         break;
@@ -492,7 +521,7 @@ void processMenu() {
           if (control.serialRelay) {
             disableSlaveModes();
           } else {
-            enableUSB2Serial(USBSERIAL);
+            enableUSB2Serial(modeUSB_Serial);
           }
         }
         break;
@@ -785,7 +814,7 @@ void processMenu() {
         if (PullUpActive) { oled.print("off"); } else { oled.print("on"); }
         break;
       case MENUI2CSCANSTART:         
-        sharedNavigation();
+        sharedNavigation(); 
         oled.print(F("I2C scanner"));
         if (PullUpActive) { oled.println(": (PU)"); } else { oled.println(":"); }
         oled.print(F(" Start (3:sda-4:scl)"));
@@ -1135,6 +1164,43 @@ void processMenu() {
         sharedNavigation();
         oled.println(F("Pulse generator:"));
         oled.print(F(" Exit generator"));
+        break;  
+
+//Screen
+      case MENUSCREEN:                   
+        sharedNavigation();
+        oled.print(F("Screen settings"));
+        break;
+      case MENUSCREENSETTINGS:
+        sharedNavigation();
+        oled.println(F("Screen settings:"));
+        oled.print(F(" Time-out"));
+        break;        
+      case MENUSCREENSETACTIVE:
+        displayScreenSet();
+        if ((options == OK) || (options == CANCEL)) { 
+          sysState = MENUSCREENSETTINGS;
+          menuoptions = OPTIONSOK;
+          options = OPTIONOK;
+        }         
+        break;
+      case MENUSCREENINFO:
+        sharedNavigation();
+        oled.println(F("Screen settings:"));
+        oled.print(F(" Information"));
+        break;        
+      case MENUSCREENINFOACTIVE:
+        showInfo(infoScreen);
+        if (options == OK) { 
+          menuoptions = OPTIONSOK;
+          sysState = MENUSCREENINFO;
+          options = OPTIONOK;
+        }
+        break;      
+      case MENUSCREENEXIT:
+        sharedNavigation();
+        oled.println(F("Screen settings:"));
+        oled.print(F(" Exit screen"));
         break;  
 
 //Serial

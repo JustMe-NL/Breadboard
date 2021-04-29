@@ -20,26 +20,26 @@
 // void displayVoltemeter()
 // void display7Segment()
 // void displayLogic()
+// void displayScreenSet();
 
 //------------------------------------------------------------------------------ dispHeader
 void dispHeader() {
+  char dispValue[6];
   oled.fillRect(0, 0, 128, 15, SSD1306_BLACK);
   oled.drawRect(0, 0, 128, 15, SSD1306_WHITE);
   oled.setCursor(4, 11);
   oled.print("V:");
-  oled.print (curVolt, 2);
+  snprintf(dispValue, 6, "%05.2f", curVolt);
+  oled.print (dispValue);
   if (cutOff) {
     oled.fillRect(71, 0, 57, 15, SSD1306_WHITE);
     oled.setTextColor(SSD1306_BLACK);
-    oled.setCursor(75, 11);
-    oled.print("A:");
-    oled.print(curAmp / 1000, 3);
-    oled.setTextColor(SSD1306_WHITE);   
-  } else {
-    oled.setCursor(75, 11);
-    oled.print("A:");
-    oled.print(curAmp / 1000, 3);
   }
+    oled.setCursor(75, 11);
+    oled.print("A:");
+    snprintf(dispValue, 6, "%1.3f", (float) curAmp / 1000);
+    oled.print (dispValue);
+    oled.setTextColor(SSD1306_WHITE);   
   if (control.powerRelay) {
     oled.fillRect(57, 0, 14, 15, SSD1306_WHITE);
     oled.setCursor(60, 11);
@@ -1119,4 +1119,42 @@ void displayLogic() {
   if (options == OPTIONVALUES) {
     oled.fillCircle((setValue * 64) + 36, 30, 4, SSD1306_WHITE);
   }
+}
+
+void displayScreenSet() {
+  if (firstrun) {
+    firstrun = false;
+    encoder.sw = false;
+    SPI_Out.clear();
+    houseKeeping();
+    SPI_Out.push(cmdESC_ExitCommand);
+    houseKeeping();
+    SPI_Out.push(cmdSerialPiping);
+    SPI_Out.push(modeSPI_Keyboard);
+    houseKeeping();
+    SPI_Out.push(cmdSTX_DataNext);
+    SPI_Out.push('H');
+    SPI_Out.push('e');
+    SPI_Out.push('l');
+    SPI_Out.push('l');
+    SPI_Out.push('o');
+    SPI_Out.push(' ');
+    SPI_Out.push('W');
+    SPI_Out.push('o');
+    SPI_Out.push('r');
+    SPI_Out.push('l');
+    SPI_Out.push('d');
+    SPI_Out.push('!');
+    houseKeeping();
+  }
+
+  if (encoder.sw) {
+    options = OK;
+    encoder.sw = false;
+    forcedisplay++;
+  }
+
+  oled.fillRect(0, 16, 128, 33, SSD1306_BLACK);
+  sharedNavigation();
+
 }

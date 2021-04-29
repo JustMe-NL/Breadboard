@@ -33,11 +33,13 @@
 //------------------------------------------------------------------------------ constants defines
 //#define debug
 
+#define PDINT_TIME                      100               // Timeout in us for stable PD_INT signal
+
 #define NVRAM_INTEGER                   0x4003E000
 #define MCP_ADDRESS                     0x20
-//#define PCF_ADDRESS2                    0x38               // PCF8574A
-#define PCF_ADDRESS2                    0x39               // PCF8574A
-#define PCF_ADDRESS                     0x38               // PCF8574
+//#define PCF_ADDRESS2                    0x38              // PCF8574A
+#define PCF_ADDRESS2                    0x39              // PCF8574A
+#define PCF_ADDRESS                     0x38              // PCF8574
 #define OLEDADDRESS                     0x3C
 #define INA219ADD                       0x40
 
@@ -200,6 +202,7 @@ enum systemStates {
   
   MENUSCREEN,
   MENUSCREENSETTINGS,
+  MENUSCREENSETACTIVE,
   MENUSCREENINFO,
   MENUSCREENINFOACTIVE,
   MENUSCREENEXIT,
@@ -423,6 +426,10 @@ extern bool slave_exit_mode;                          // Data in SPI_Out is irre
 extern bool slowSlave;                                // Slave is running @ 8MHz
 extern bool PullUpActive;                             // PullUp for is active
 extern bool lastclock;                                // previous clocksignal
+extern bool allSPIisData;
+extern volatile bool slaveTimerRunning;                        // 
+extern volatile bool slaveAckReceived;                         //
+extern volatile bool slaveReadRequest;                         //  
 extern control_struct control;                        // status control expander
 extern elapsedMillis timeout;                         // timeout for requencumeasurements
 extern parameter_struct param;                        // parameters for avrisp
@@ -667,6 +674,7 @@ void enableGPIO();
 void disableGPIO();
 void enableUSB2Serial(uint8_t mode);
 void disableSlaveModes();
+void disableSlaveModes();
 void processCursor();
 void showInfo(const char* helptext);
 void showCounter();
@@ -685,3 +693,4 @@ uint8_t calculateLogic(uint8_t myblocks, uint8_t myvalue, uint8_t myx);
 void display7Segment();
 void displayLogic();
 void showlogicPins(uint8_t myx, byte value, bool showPin3);
+void displayScreenSet();

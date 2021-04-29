@@ -1,5 +1,5 @@
 //------------------------------------------------------------------------------ includes
-#include <breadboard.h>
+#include "breadboard.h"
 
 // classes
 // enum & structs
@@ -9,6 +9,7 @@
 // void changeMyValue()
 // void getUserValue()
 // void setUserValue()
+// void houseKeeping()
 // void setup()
 // void loop()
 
@@ -24,6 +25,7 @@ PWMServo myservo;                                                               
 RingBuf<uint8_t, 256> SPI_In;                                                   // Ringbuffer for SPI input
 RingBuf<uint8_t, 256> SPI_Out;                                                  // Ringbuffer for SPI output
 RingBuf<capture_struct, 4096> CaptureBuf;                                       // Ringbuffer for measurments
+IntervalTimer slaveTimer;
 
 //------------------------------------------------------------------------------ enums & structs
 
@@ -43,6 +45,7 @@ long oldPosition = 0;                             // encoder tracking
 unsigned long last_interrupt_time = 0;            // software debounce
 unsigned long last_lp_interrupt_time = 0;         // long press
 unsigned long last_time = 0;                      // cursor timing
+unsigned long lastpdInt = 0;                      // last time a PD_INT change was detected
 unsigned long maxValue;                           // maximum value for input
 unsigned long setValue;                           // current input value
 int count1;                                       // countvar for frequencymeasurment
@@ -88,14 +91,19 @@ bool readSet = false;                             // expander in read mode
 bool rst_active_high;                             // avrisp
 bool checklist[12];                               // what wend wrong with this clone
 bool newSPIdata_avail;                            // We recieved new SPI data
-bool slave_exit_mode;                             // Data in SPI_Out is irrelevant & flushed if thios flag is set, slave ends current mode 
+bool slave_exit_mode;                             // Data in SPI_Out is irrelevant & flushed if this flag is set, slave ends current mode 
 bool slowSlave;                                   // Slave is running @ 8MHz
 bool PullUpActive;                                // PullUp is active
 bool lastclock;                                   // previous clocksignal
+bool allSPIisData;                                // 
+volatile bool slaveTimerRunning;                  // 
+volatile bool slaveAckReceived;                   //
+volatile bool slaveReadRequest;                   //  
 control_struct control;                           // status control expander
 elapsedMillis timeout;                            // timeout for requencumeasurements
 parameter_struct param;                           // parameters for avrisp
 capture_struct curByte;                           // current capture byte
+Encoder_internal_state_t * Encoder::interruptArgs[];
 
 // Counter 100%
 // Encoder 100%
@@ -142,6 +150,23 @@ void sclInterrupt() {
   curByte.value = (uint8_t) GPIOD_PDIR & 0x0090;
   if (!CaptureBuf.isFull()) { CaptureBuf.push(curByte); }
   curByte.state = curByte.value;
+}
+
+void slaveTimerInterrupt() {
+  slaveTimer.end();
+  slaveTimerRunning = false;
+  slaveAckReceived = true;
+  slaveReadRequest = !digitalReadFast(PDINT);
+}
+
+void pdInterrupt() {
+  if (slaveTimerRunning) {
+digitalWriteFast(21, HIGH);
+digitalWrite(21, LOW);
+    slaveAckReceived = true;
+  }
+  slaveTimer.begin(slaveTimerInterrupt, PDINT_TIME);
+  slaveTimerRunning = true;
 }
 
 //------------------------------------------------------------------------------ set digit in value
@@ -421,8 +446,9 @@ void setUserValue(unsigned long valueToSet, uint8_t valstep) {
   getUserValue();
 }
 
+//------------------------------------------------------------------------------ process communications
 void houseKeeping() {
-  unsigned long now_time = millis();                      // check cursor & display 
+  unsigned long now_time = millis();                               // check cursor & display 
   if (now_time - last_time > 200) {
     last_time = now_time;
     measure = !measure;
@@ -440,21 +466,26 @@ void houseKeeping() {
     }
   } 
 
-  if (!digitalRead(PDINT)) {                                      // Does the SPI slave want to tell me something?
+  if (slaveReadRequest) {                                          // Does the SPI slave want to tell me something?
     uint8_t spidata;
     bool transdone;
-    if (!SPI_In.isFull()) {
+    if (!SPI_In.isFull()) {                                        // Check buffer status
       transdone = false;
       SPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
-      digitalWrite(PDSLAVE, LOW);
-      SPI.transfer(READACKNOWLEDGED);
-      while (!SPI_In.isFull() && !transdone) {
-        delay(2);
-        spidata = SPI.transfer(0x00);
-        SPI_In.push(spidata);
-        if (digitalRead(PDINT) == HIGH) {
-          transdone = true;
-        }
+      slaveTimerRunning = false;
+      slaveAckReceived = false;                                    // init vars
+      digitalWrite(PDSLAVE, LOW);                                  // start transaction
+      SPI.transfer(cmdENQ_ReadAck);                                // Confirm send request from slave
+      while(!slaveAckReceived);                                    // Wait for confirmation from slave for next byte
+      slaveAckReceived = false;
+      while (!SPI_In.isFull() && !transdone) {                     // Read bytes until buffer full or transfer is done
+        spidata = SPI.transfer(0x00);                              // Send 0x00, recieve data from slave
+        SPI_In.push(spidata);                                      // Add to ringbuffer
+        while(!slaveAckReceived);                                  // Wait for confirmation from slave for next byte
+        slaveAckReceived = false;
+        if (!slaveReadRequest) {                                   // If slave has no more data, it will stop sending Acks, the timer
+          transdone = true;                                        //   will runout and we get an slaveAckReceived & slaveReadReq 
+        }                                                          //   will be false
       }
       digitalWrite(PDSLAVE, HIGH);
       SPI.endTransaction();
@@ -462,28 +493,29 @@ void houseKeeping() {
     }
   }
 
-  if (!SPI_Out.isEmpty()) {                                     // Do we have something to tell the SPI slave?
+  if (!SPI_Out.isEmpty()) {                                        // Do we have something to tell the SPI slave?
     uint8_t spidata;
     digitalWrite(PDSLAVE, LOW);
     SPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
-    if (slave_exit_mode) {
-      SPI.transfer(EXITCOMMAND);
-      slave_exit_mode = false;
-      SPI_Out.clear();
-    } else {
-      SPI.transfer(DATAFOLLOWS);
+    slaveAckReceived = false;
+    if (allSPIisData) {                                            // In this mode all outgoing transactions are automatically
+        spidata = SPI.transfer(cmdSTX_DataNext);                   //     preceded by the cmdSTX_DataNext command to the slave
+        while(!slaveAckReceived);                                  // Wait for confirmation from slave for next byte
+        slaveAckReceived = false;
     }
-    while (!SPI_Out.isEmpty())
+    while (!SPI_Out.isEmpty())                                     // Keep sending bytes until the buffer is empty
     {
-      delay(2);
       SPI_Out.pop(spidata);
-      SPI.transfer(spidata);
+      spidata = SPI.transfer(spidata);
+      while(!slaveAckReceived);                                    // Wait for confirmation from slave for next byte
+      slaveAckReceived = false;
     }
     SPI.endTransaction();
     digitalWrite(PDSLAVE, HIGH);
+    delayMicroseconds(50);                                         // Give slave some time to process the rise of the SS signal
   }
 
-  long newPosition = myEnc.read() >> 2;                           // Read encoder
+  long newPosition = myEnc.read() >> 2;                            // Read encoder
   if (newPosition != oldPosition) {
     if (oldPosition > newPosition) { encoder.up = true; }
     if (oldPosition < newPosition) { encoder.down = true; }
@@ -528,6 +560,12 @@ void setup() {
   digitalWrite(PDSLAVE, HIGH);
   PullUp(false);
   analogReadAveraging(100);
+
+  pinMode (21, OUTPUT);
+  pinMode (22, OUTPUT);
+  digitalWrite (21, LOW);
+  digitalWrite (22, LOW);
+  
   
   control.all = 0x00;
   writeToExpander(0x00, true);
@@ -546,6 +584,8 @@ void setup() {
   
   baudRate = (sizeof(baudRates)/sizeof(baudRates[0])) - 1; // Default baudrate = max
   attachInterrupt(digitalPinToInterrupt(EXPINT), expanderInterrupt, FALLING);
+  slaveTimerRunning = false;
+  attachInterrupt(digitalPinToInterrupt(PDINT), pdInterrupt, CHANGE);
   
   SPI.setMOSI(myMOSI);
   SPI.setMISO(myMISO);
@@ -553,8 +593,10 @@ void setup() {
   SPISettings PDmicro(2000000, MSBFIRST, SPI_MODE0);
   slave_exit_mode = false;
   newSPIdata_avail = false;
+  allSPIisData = false;
   SPI.begin();
-  
+  SPI.transfer(0x00);
+
   logicSet = 0x37;
 }
 
