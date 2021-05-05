@@ -4,6 +4,10 @@
 // void processCursor()
 // void nowcursor()
 // void sharedNavigation()
+// void setDigitInValue()
+// void changeMyValue()
+// void getUserValue()
+// void setUserValue()
 // void showCounter()
 // void showFreqLowCount()
 // void showFreqHighCount()
@@ -201,6 +205,283 @@ void sharedNavigation(bool process) {
   oled.setCursor(savedX, savedY);
 }
 
+//------------------------------------------------------------------------------ set digit in value
+void setDigitInValue(boolean subtract) {
+  byte myDigit = 8 - maxDigits + editValue;
+  uint8_t mystep = 1;
+  byte myval = (byte) myValue[myDigit];
+  switch (inputType) {
+    case INPUTNUMBER:
+      if (myDigit == 6) {
+        if (valuestep > 10) { mystep = valuestep / 10; }  
+      }
+      if (subtract) {
+        if (myval >= (0x30 + mystep)) { myValue[myDigit] = char(myval - mystep); }  
+      } else {
+        if (myval <= (0x39 - mystep)) { myValue[myDigit] = char(myval + mystep); } 
+      }
+      break;
+    case INPUTBINARY:
+      if (myval > 0x30) { 
+        myValue[myDigit] = 0x30;  
+      } else {
+        myValue[myDigit] = 0x31;
+      }
+      setValue = 0;
+      for (uint8_t i=0; i<8; i++) {
+        setValue = setValue << 1;
+        if (myValue[i] & 0x01) { setValue++; }
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+//------------------------------------------------------------------------------ step value up/down
+void changeMyValue(boolean changeUp) {
+  uint8_t temp = 0;
+  switch (inputType) {
+    case INPUTNUMBER:
+      if (changeUp) {
+        setValue = atol(myValue);
+        if (setValue > maxValue) { setValue = maxValue; }
+        if (setValue <= (maxValue - valuestep)) {
+          setValue += valuestep;
+          snprintf(myValue, 10, "%08lu", setValue);
+        }
+      } else {
+        setValue = atol(myValue);
+        if (setValue > maxValue) { setValue = maxValue; }
+        if (setValue >= (0 + valuestep)) { 
+          setValue -= valuestep; 
+          snprintf(myValue, 10, "%08lu", setValue);
+        }
+      }
+      break;
+    case INPUTBAUD:
+      if (changeUp) {
+        if (baudRate < (sizeof(baudRates)/sizeof(baudRates[0])) - 1) { baudRate++; }
+      } else {
+        if (baudRate > 0) { baudRate--; }
+      }
+      setValue = baudRates[baudRate];
+      snprintf(myValue, 10, "%08lu", setValue);
+      break;
+    case INPUTBINARY:
+      if (changeUp) {
+        setValue++;
+      } else {
+        setValue--; 
+      }
+      setValue = setValue & 0xFF;
+      temp = setValue;
+      for (uint8_t i=8; i>0; i--) {
+        myValue[i - 1] = (temp & 0x01) + 0x30;
+        temp = temp >> 1;
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+//------------------------------------------------------------------------------ get values from user
+// 0:OPTIONSTART, 1:OPTIONCANCEL, 2:OPTIONUPDOWN, 4:OPTIONOK, 3:OPTIONVALUES, 4:OPTIONSETVALUES, 5:OPTIONSETUPDOWN, 6:OK, 7:CANCEL
+void getUserValue() {
+  uint8_t mycol;
+  enum optionStates temp;
+  
+  temp = options;
+  if (encoder.up) {                                           // dial up
+    switch(options) {
+      case OPTIONOK:
+        if (valuestep < 10) {
+          editValue = maxDigits - 1;
+        } else {
+          editValue = maxDigits - 2;
+        }
+        if ((inputType == INPUTNUMBER) || (inputType == INPUTBINARY)) {
+          temp = OPTIONVALUES;
+        } else {
+          if (menuoptions == OPTIONSOKSETCANCEL || menuoptions == OPTIONSCANCEL) {
+            temp = OPTIONUPDOWN;
+          } else {
+            temp = OPTIONCANCEL;
+          }
+        }
+        break;
+      case OPTIONUPDOWN:
+        temp = OPTIONOK;
+        break;
+      case OPTIONCANCEL:
+        temp = OPTIONUPDOWN;
+        break;
+      case OPTIONVALUES:
+        editValue--;
+        if (editValue < 0) { temp = OPTIONUPDOWN; }
+        break;
+      case OPTIONSETVALUES:
+        setDigitInValue(true);
+        break;
+      case OPTIONSETUPDOWN:
+        changeMyValue(false);
+        break;
+      default:
+        break;
+    }
+  }
+  if (encoder.down) {                                         // dial down
+    switch(options) {
+      case OPTIONCANCEL:
+        editValue = 0;
+        temp = OPTIONVALUES;
+        break;
+      case OPTIONUPDOWN:
+        if ((inputType == INPUTNUMBER) || (inputType == INPUTBINARY)) {
+            editValue = 0;
+            temp = OPTIONVALUES;
+        } else {
+          if (menuoptions == OPTIONSOKSETCANCEL || menuoptions == OPTIONSCANCEL) {
+            temp = OPTIONCANCEL;
+          } else {
+            editValue = 0;
+            temp = OPTIONVALUES;
+          }
+        }
+        break;
+      case OPTIONOK:
+        temp = OPTIONUPDOWN;
+        break;
+      case OPTIONVALUES:
+        editValue++;
+        if (valuestep < 10) {
+          if (editValue >= maxDigits) { temp = OPTIONOK; }
+        } else {
+          if (editValue >= (maxDigits - 1)) { temp = OPTIONOK; }
+        }
+        break;
+      case OPTIONSETVALUES:
+        setDigitInValue(false);
+        break;
+      case OPTIONSETUPDOWN:
+        changeMyValue(true);
+        break;
+      default:
+        break;
+    }
+  }
+
+  if (encoder.sw) {                                           // dial clicked
+    switch(options) {
+      case OPTIONCANCEL:
+        temp = CANCEL;
+        cursoron.blinkon = false;
+        forcedisplay++;
+        break;
+      case OPTIONUPDOWN:
+        temp = OPTIONSETUPDOWN;
+        break;
+      case OPTIONOK:
+        if (inputType == INPUTNUMBER) {
+          setValue = atol(myValue);
+          if (setValue > maxValue) { 
+            setValue = maxValue;
+            snprintf(myValue, 10, "%08lu", setValue);
+          } else {
+            temp = OK;
+            cursoron.blinkon = false;
+            forcedisplay++;
+          }
+        }
+        if (inputType == INPUTBAUD) {
+            temp = OK;
+            cursoron.blinkon = false;
+            forcedisplay++;
+        }
+        if (inputType == INPUTBINARY) {
+            setValue = 0;
+            for (uint8_t i=0; i<8; i++) {
+              setValue = setValue << 1;
+              if (myValue[i] & 0x01) { setValue++; }
+            }
+            temp = OK;
+            cursoron.blinkon = false;
+            forcedisplay++;
+        }      
+        break;
+      case OPTIONVALUES:
+        temp = OPTIONSETVALUES;
+        break;
+      case OPTIONSETVALUES:
+        temp = OPTIONVALUES;
+        break;
+      case OPTIONSETUPDOWN:
+        temp = OPTIONUPDOWN;
+        break;
+      default:
+        break;     
+    }
+  }
+  options = temp;
+  if (inputType == INPUTBINARY) { writeToExpander((uint8_t) setValue); }
+  
+  sharedNavigation();
+  oled.fillRect(0, 16, 128, 17, SSD1306_BLACK);
+  oled.setCursor(5, 32);
+
+  for (uint8_t i=8 - maxDigits; i<8; i++) {
+    mycol = oled.getCursorX();
+    if (i == 8 - maxDigits + editValue) {
+      if (options == OPTIONSETVALUES) { nowcursor(myValue[i], true); }
+      if (options == OPTIONVALUES) { nowcursor(myValue[i]); }
+    }
+    oled.print(myValue[i]);
+    oled.setCursor(mycol + 7, 32);
+  }
+  
+  switch (valueType) {
+    case VALUEA:
+      oled.print(" mA");
+      break;
+    case VALUEV:
+      oled.print(" mV");
+      break;
+    case VALUEBAUD:
+      if (slowSlave) {
+        snprintf(myValue, 16, " (%.1f) baud", (float) baudErrLow[baudRate] / 10);
+      } else {
+        snprintf(myValue, 16, " (%.1f) baud", (float) baudErrHigh[baudRate] / 10);
+      }
+      oled.print(myValue);
+      snprintf(myValue, 10, "%08lu", setValue);
+      break;
+    case VALUENONE:
+      break;
+  }
+
+  if (sysState == MENUSETPINSSETVALUEACTIVE) {
+    bytePins = setValue;
+    writeToExpander(bytePins);
+  }
+}
+
+//------------------------------------------------------------------------------ init get value
+void setUserValue(unsigned long valueToSet, uint8_t valstep) {
+  char mymaxValue[10];
+  setValue = valueToSet;
+  editValue = 0;
+  options = OPTIONOK;
+  encoder.sw = false;
+  snprintf(mymaxValue, 10, "%lu", maxValue);
+  snprintf(myValue, 10, "%08lu", setValue);
+  maxDigits = strlen(mymaxValue);
+  valuestep = valstep;
+  if (inputType == INPUTBAUD) { valueType = VALUEBAUD; }
+  if (inputType == INPUTBINARY) { valueType = VALUENONE; }
+  getUserValue();
+}
+
 //------------------------------------------------------------------------------ Counter
 void showCounter() {
 
@@ -227,14 +508,14 @@ void showFreqLowCount() {
 
   oled.fillRect(0, 16, 128, 19, SSD1306_BLACK);
   oled.setCursor(5, 32);
-  if (timeout > 500) {
+  if (frequencyTimeout > 500) {
     if (count1 > 0) {
       snprintf(myValue, 16, "%.3f", (float) freq1.countToFrequency(sum1 / count1));
       oled.print(myValue);
       oled.print(" Hz");
       count1 = 0;
       sum1 = 0;
-      timeout = 0;
+      frequencyTimeout = 0;
     } else {
       oled.print("(no pulses)");
     }
@@ -906,7 +1187,6 @@ void displayISPAVRProgrammer() {
   if (firstrun) {
     firstrun = false;
     encoder.sw = false;
-    stopProg = false;
     progmode = 0x00;
     error = 0x00;
   }
@@ -914,7 +1194,6 @@ void displayISPAVRProgrammer() {
   if (encoder.lp) {
     sysState = MENUPROGISPAVRONOFF;
     disableSlaveModes();
-    stopProg = true;
     encoder.lp = false;
     forcedisplay++;
   }
@@ -1146,6 +1425,7 @@ void displayScreenSet() {
     SPI_Out.push('d');
     SPI_Out.push('!');
     houseKeeping();
+    oled.print("klik ok to exit");
   }
 
   if (encoder.sw) {
@@ -1156,5 +1436,88 @@ void displayScreenSet() {
 
   oled.fillRect(0, 16, 128, 33, SSD1306_BLACK);
   sharedNavigation();
-
 }
+
+void displayI2CMonitor() {
+  uint32_t tempPointer;
+  //enum optionStates temp;
+  //temp = options;
+  if (firstrun) {
+    enableGPIO();
+    oled.fillRect(0, 16, 128, 33, SSD1306_BLACK);
+    sharedNavigation();
+    oled.setCursor(5, 32);
+    oled.print("Capturing...");
+    pinMode(5, INPUT);
+    CORE_PIN5_CONFIG = PORT_PCR_IRQC(3)|PORT_PCR_MUX(1);           // Enable DMA Interrupt on change
+    pinMode(6, INPUT);
+    CORE_PIN6_CONFIG = PORT_PCR_IRQC(3)|PORT_PCR_MUX(1);           // Enable DMA Interrupt on change
+    for (uint8_t i = 0; i < MAXTIMESPAN; i++) {
+      CaptureMinutesBuffer[i] = 0x00000000;
+    }
+    firstrun = false;
+    encoder.sw = false;
+    options = OPTIONOK;
+    menuoptions = OPTIONSOKSET;
+    dmachannel0.enable();
+    dmachannel1.enable();
+  }
+
+  if (dmachannel0.complete()) {
+    oled.fillRect(0, 16, 128, 33, SSD1306_BLACK);
+    sharedNavigation();
+    oled.setCursor(5, 32);
+    oled.print("Buffer full");
+  }
+
+  if (encoder.sw) {
+    if (!dmachannel0.complete()) {
+      CapturePointer = dmachannel0.TCD->DADDR;
+      dmachannel0.disable();
+      dmachannel1.disable();
+      CORE_PIN5_CONFIG = PORT_PCR_IRQC(0)|PORT_PCR_MUX(1);           // Disable DMA Interrupt on change
+      CORE_PIN5_CONFIG = PORT_PCR_IRQC(0)|PORT_PCR_MUX(1);           // Disable DMA Interrupt on change
+      tempPointer = &CaptureDataBuffer[0];
+      CapturePointer = CapturePointer - tempPointer;
+    }
+    options = OK;
+    encoder.sw = false;
+    forcedisplay++;
+  }
+}
+
+void displayExport() {
+  //enum optionStates temp;
+  //temp = options;
+  if (firstrun) {
+    firstrun = false;
+    encoder.sw = false;
+    options = OPTIONOK;
+    menuoptions = OPTIONSOKSETCANCEL;
+    setValue = 0;
+  }
+
+  if (encoder.sw) {
+    options = OK;
+    encoder.sw = false;
+    forcedisplay++;
+  }
+
+  oled.fillRect(0, 16, 128, 33, SSD1306_BLACK);
+  sharedNavigation();
+  oled.setCursor(5, 32);
+  oled.print("Exporting...");
+  oled.display();
+
+  SPI_Out.clear();
+  //enableUSB2Serial(modeSPI_USB);
+  //allSPIisData = true;
+  //disableSlaveModes();
+  //Serial.println("RAW");
+  //rawI2CExport();
+  //Serial.println("Salae:");
+  //salaeProtocolExport();
+  //Serial.println("HRF");
+  I2CprotocolExport();
+}
+

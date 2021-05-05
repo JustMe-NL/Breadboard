@@ -56,7 +56,7 @@ void processMenu() {
           options = OPTIONOK;
           count1 = 0;
           sum1 = 0;
-          timeout = 0;
+          frequencyTimeout = 0;
           freqLowOn = true;
           firstrun = true;
           encoder.sw = false;
@@ -152,7 +152,7 @@ void processMenu() {
         break;
       case MENUI2CSCANSTART:           
         if (encoder.up) { sysState = MENUI2CSCANPULLUPONOFF; }
-        if (encoder.down) { sysState = MENUI2CSCANINFO; }
+        if (encoder.down) { sysState = MENUI2CSCANMONITOR; }
         if (encoder.sw) { 
           oled.setCursor(0, 32);
           oled.fillRect(0, 16, 128, 32, SSD1306_BLACK);
@@ -163,7 +163,7 @@ void processMenu() {
           i2c.begin();
           uint8_t j = 1;
           buffer[0] = 0;
-          for (uint8_t i = 0; i < 127; i++) {
+          for (uint8_t i = 1; i < 126; i++) {
             uint8_t startResult = i2c.llStart((i << 1) + 1); // Signal a read
             i2c.stop();
             if (startResult == 0) { 
@@ -183,8 +183,24 @@ void processMenu() {
         }
         break;
       //case MENUI2CSCANCOMPLETE:        //  special
-      case MENUI2CSCANINFO:
+      case MENUI2CSCANMONITOR:
         if (encoder.up) { sysState = MENUI2CSCANSTART; }
+        if (encoder.down) { sysState = MENUI2CSCANEXPORT; }
+        if (encoder.sw) { 
+          firstrun = true;
+          sysState = MENUI2CSCANMONITORACTIVE;
+        }
+        break;
+      case MENUI2CSCANEXPORT:
+        if (encoder.up) { sysState = MENUI2CSCANMONITOR; }
+        if (encoder.down) { sysState = MENUI2CSCANINFO; }
+        if (encoder.sw) { 
+          firstrun = true;
+          sysState = MENUI2CSCANEXPORTACTIVE;
+        }
+        break;      
+      case MENUI2CSCANINFO:
+        if (encoder.up) { sysState = MENUI2CSCANEXPORT; }
         if (encoder.down) { sysState = MENUI2CSCANEXIT; }
         if (encoder.sw) { 
           firstrun = true;
@@ -298,7 +314,6 @@ void processMenu() {
           options = OPTIONOK;
           disableGPIO();
           writeToExpander(0xFF);
-          CaptureBuf.clear();
           pinmonOn = true;
           encoder.sw = false;
           readFromExpander();
@@ -313,7 +328,6 @@ void processMenu() {
           options = OPTIONOK;
           disableGPIO();
           writeToExpander(0xFF);
-          CaptureBuf.clear();
           pinmonOn = true;
           encoder.sw = false;
           readFromExpander();
@@ -804,18 +818,18 @@ void processMenu() {
 //I2CScanner
       case MENUI2CSCAN:               
         sharedNavigation();
-        oled.print(F("I2C scanner"));
+        oled.print(F("I2C tools"));
         break;
       case MENUI2CSCANPULLUPONOFF:         
         sharedNavigation();
-        oled.print(F("I2C scanner"));
+        oled.print(F("I2C tools"));
         if (PullUpActive) { oled.println(": (PU)"); } else { oled.println(":"); }
         oled.print(F(" Set pull-ups "));
         if (PullUpActive) { oled.print("off"); } else { oled.print("on"); }
         break;
       case MENUI2CSCANSTART:         
         sharedNavigation(); 
-        oled.print(F("I2C scanner"));
+        oled.print(F("I2C tools"));
         if (PullUpActive) { oled.println(": (PU)"); } else { oled.println(":"); }
         oled.print(F(" Start (3:sda-4:scl)"));
         break;
@@ -827,9 +841,37 @@ void processMenu() {
           options = OPTIONOK;
         }
         break;
+      case MENUI2CSCANMONITOR:
+        sharedNavigation();
+        oled.print(F("I2C tools"));
+        if (PullUpActive) { oled.println(": (PU)"); } else { oled.println(":"); }
+        oled.print(F(" Monitor bus"));
+        break;
+      case MENUI2CSCANMONITORACTIVE:
+        displayI2CMonitor();
+        if ((options == OK) || (options == CANCEL)) { 
+          sysState = MENUI2CSCANMONITOR;
+          menuoptions = OPTIONSOK;
+          options = OPTIONOK;
+        }
+        break;
+      case MENUI2CSCANEXPORT:
+        sharedNavigation();
+        oled.print(F("I2C tools"));
+        if (PullUpActive) { oled.println(": (PU)"); } else { oled.println(":"); }
+        oled.print(F(" Export buffer"));
+        break;
+      case MENUI2CSCANEXPORTACTIVE:
+        displayExport();
+        if ((options == OK) || (options == CANCEL)) { 
+          sysState = MENUI2CSCANEXPORT;
+          menuoptions = OPTIONSOK;
+          options = OPTIONOK;
+        }
+        break;
       case MENUI2CSCANINFO:
         sharedNavigation();
-        oled.print(F("I2C scanner"));
+        oled.print(F("I2C tools"));
         if (PullUpActive) { oled.println(": (PU)"); } else { oled.println(":"); }
         oled.print(F(" Information"));
         break;
@@ -843,7 +885,7 @@ void processMenu() {
         break;
       case MENUI2CSCANEXIT:           
         sharedNavigation();
-        oled.print(F("I2C scanner"));
+        oled.print(F("I2C tools"));
         if (PullUpActive) { oled.println(": (PU)"); } else { oled.println(":"); }
         oled.print(F(" Exit I2C"));
         break;

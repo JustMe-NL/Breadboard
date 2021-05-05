@@ -22,7 +22,7 @@
 #define DBG4    7
 
 //#define PD
-#define PULSEDELAY  3
+#define PULSEDELAY  3                                      // Delay for Master to catch up on PDINT signalling
 
 /*
 Needs modified ~/.platformio/packages/framework-arduino-avr/variants/micro/pins_arduino.h
@@ -57,7 +57,7 @@ bool toggle;                                                // Debugging
 enum pdState_e pdState;
 
 void setSpeed(bool highSpeed) {
-  if (highSpeed) {
+  if (highSpeed) {                                          // Set high or lowspeed (lowspeed @ 3V3)
     clock_prescale_set(clock_div_1);
     PD_UFP.clock_prescale_set(1);
   } else {
@@ -68,7 +68,6 @@ void setSpeed(bool highSpeed) {
 
 void setup (void)
 {
-  highSpeed = true;
   pinMode(4, OUTPUT);
   digitalWrite(4, LOW);
   pinMode(5, OUTPUT);
@@ -81,7 +80,8 @@ void setup (void)
   pinMode(MISO, OUTPUT);
   pinMode(PDINT, OUTPUT);
   digitalWrite(PDINT, HIGH);
-  pinMode(SS, INPUT_PULLUP); 
+  pinMode(SS, INPUT_PULLUP);
+  highSpeed = true;
   Serial.begin(500000);
   Serial1.begin(500000);
   Keyboard.begin(); 
@@ -95,13 +95,13 @@ void setup (void)
 }
 
 // SPI interrupt routine
-ISR (SPI_STC_vect) {                                               // His masters voice is heard
+ISR (SPI_STC_vect) {                                               // His masters voice is heard :)
   uint8_t spidata_out, spidata_in;
-  spidata_in = SPDR;                                               // get the cookie
+  spidata_in = SPDR;                                               // Get the data
   if (writemode) {
     if (!SPI_In.isFull()) { 
       SPI_In.push(spidata_in);                                     // If room in the buffer, store it.
-      bitClear(PORTF, 7);
+      bitClear(PORTF, 7);                                          // Signal reciept
       delayMicroseconds(PULSEDELAY);
       bitSet(PORTF, 7);
     }             
@@ -112,13 +112,13 @@ ISR (SPI_STC_vect) {                                               // His master
     } else {
       SPI_Out.pop(spidata_out);                                    // send it out @ next recieved byte from master.
       SPDR = spidata_out;
-      bitSet(PORTF, 7);
+      bitSet(PORTF, 7);                                            // Signal reciept
       delayMicroseconds(PULSEDELAY);
       bitClear(PORTF, 7);
     }         
   }
   if(!transactionbusy) {                                           // This is the first byte from the master
-    if (SPI_In.isEmpty()) {                                       // Did we process the last databurst?
+    if (SPI_In.isEmpty()) {                                        // Did we process the last databurst?
       transactionbusy = true;
       switch (spidata_in) {
         case cmdENQ_ReadAck:                                       // are we in master-read mode?                      
@@ -134,7 +134,7 @@ ISR (SPI_STC_vect) {                                               // His master
           writemode = true;
           pdState = stateIdle;
           break;
-        case cmdSTX_DataNext:
+        case cmdSTX_DataNext:                                      // Next bytes are "normal" data
           writemode = true;
           break;
         default:                                                   // All other commands (incl cmdSTX_DataNext) 
@@ -142,12 +142,12 @@ ISR (SPI_STC_vect) {                                               // His master
           writemode = true;
           break;
       }
-      if (readmode) {
-        bitSet(PORTF, 7);
+      if (readmode) {                                              // Signal reciept
+        bitSet(PORTF, 7);                                          // positive pulse
         delayMicroseconds(PULSEDELAY);
         bitClear(PORTF, 7);
       } else {
-        bitClear(PORTF, 7);
+        bitClear(PORTF, 7);                                        // negative pulse
         delayMicroseconds(PULSEDELAY);
         bitSet(PORTF, 7);
       }  
@@ -182,15 +182,15 @@ void loop (void)
     }
   }
 
-  if (pdState == stateSPI_USB || pdState == stateSPI_Serial || pdState == stateSPI_Keyboard) {   // Process Serial data
-    if (!SPI_In.isEmpty()) {
+  if (pdState == stateSPI_USB || pdState == stateSPI_Serial || pdState == stateSPI_Keyboard) {   
+    if (!SPI_In.isEmpty()) {                                       // Process Serial data
       processingSPIdata = true;
       SPI_In.lockedPop(mydata);
       if (pdState == stateSPI_USB) {
-        Serial.write(mydata);                                     // Data fro SPI to Serial
+        Serial.write(mydata);                                      // Data fro SPI to Serial
       } else {
         if (pdState == stateSPI_Serial) {
-          Serial1.write(mydata);                                    // Data fro SPI to Serial1
+          Serial1.write(mydata);                                   // Data fro SPI to Serial1
         } else {
           //Keyboard.write(mydata);
           //Serial.print(mydata, HEX);
@@ -202,12 +202,12 @@ void loop (void)
     }
     if (!SPI_Out.isFull()) {
       if (pdState == stateSPI_USB) {
-        if (Serial.available()) {                                 // Data from serial to SPI
+        if (Serial.available()) {                                  // Data from serial to SPI
           SPI_Out.lockedPush(Serial.read());
           digitalWrite(PDINT, LOW);
         }
       } else {
-        if (Serial1.available()) {                                // Data from serial1 to SPI
+        if (Serial1.available()) {                                 // Data from serial1 to SPI
           SPI_Out.lockedPush(Serial1.read());             
           digitalWrite(PDINT, LOW);
         }        
@@ -215,14 +215,14 @@ void loop (void)
     }
   }
 
-  if (pdState == stateUSB_Serial) {                               // Proces serial data
-    if(Serial.available()) { Serial1.write(Serial.read()); }      // Data from USB to Serial
-    if(Serial1.available()) { Serial.write(Serial1.read()); }     // Data from Serial to USB
+  if (pdState == stateUSB_Serial) {                                // Proces serial data
+    if(Serial.available()) { Serial1.write(Serial.read()); }       // Data from USB to Serial
+    if(Serial1.available()) { Serial.write(Serial1.read()); }      // Data from Serial to USB
   } 
 
-  if (newSPIdata_avail && !processingSPIdata) {                                         // New SPI transaction so 1st byte tells us what we can expect.
+  if (newSPIdata_avail && !processingSPIdata) {                    // New SPI transaction so 1st byte tells us what we can expect.
     switch (SPI_In[0]) {
-      case cmdSerialPiping:                                          // Piping commands
+      case cmdSerialPiping:                                        // Piping commands
         if (SPI_In[1] == modeSPI_USB)    { 
           pdState = stateSPI_USB; 
         }
@@ -236,7 +236,7 @@ void loop (void)
           pdState = stateSPI_Keyboard;
         }
         break;
-      case cmdSetBaudRate:                                        // Set baudrate
+      case cmdSetBaudRate:                                         // Set baudrate
         Serial1.end();
         curBaudrate = SPI_In[1];
         if (!highSpeed) { 
@@ -246,7 +246,7 @@ void loop (void)
         }
         break;
     }
-    newSPIdata_avail = false;
+    newSPIdata_avail = false;                                      // No more SPI data present in buffer
     SPI_In.clear();
   }
 

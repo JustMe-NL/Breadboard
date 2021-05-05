@@ -5,10 +5,6 @@
 // enum & structs
 // globals
 // Interrupts
-// void setDigitInValue()
-// void changeMyValue()
-// void getUserValue()
-// void setUserValue()
 // void houseKeeping()
 // void setup()
 // void loop()
@@ -24,8 +20,12 @@ FreqMeasureMulti freq1;                                                         
 PWMServo myservo;                                                               // PWM generato for Servo's
 RingBuf<uint8_t, 256> SPI_In;                                                   // Ringbuffer for SPI input
 RingBuf<uint8_t, 256> SPI_Out;                                                  // Ringbuffer for SPI output
-RingBuf<capture_struct, 4096> CaptureBuf;                                       // Ringbuffer for measurments
-IntervalTimer slaveTimer;
+IntervalTimer slaveTimer;                                                       // Timer for PDINT interpretation
+elapsedMillis slaveTimeout;                                                     // timout for waiting fore slave acknowledgements
+elapsedMillis screenTimeout;                                                    // timeout for screen blanking
+elapsedMillis frequencyTimeout;                                                 // timeout for frequencymeasurements
+DMAChannel dmachannel0;
+DMAChannel dmachannel1;
 
 //------------------------------------------------------------------------------ enums & structs
 
@@ -42,12 +42,16 @@ float sum1;
 float curVolt = 0;                                // current measured voltage
 float curAmp = 0;                                 // current measured milliampere
 long oldPosition = 0;                             // encoder tracking
+unsigned long setScreenTimeOut = 60000;           // Timeout set to 5 min.
 unsigned long last_interrupt_time = 0;            // software debounce
 unsigned long last_lp_interrupt_time = 0;         // long press
 unsigned long last_time = 0;                      // cursor timing
 unsigned long lastpdInt = 0;                      // last time a PD_INT change was detected
 unsigned long maxValue;                           // maximum value for input
 unsigned long setValue;                           // current input value
+uint32_t CaptureTimeBuffer[MAXBUFSIZE];
+uint32_t CaptureMinutesBuffer[MAXTIMESPAN];
+uint32_t CapturePointer;
 int count1;                                       // countvar for frequencymeasurment
 int error = 0;                                    // avrisp
 int pmode = 0;                                    // avrisp
@@ -73,6 +77,8 @@ uint8_t progmode;                                 // boolean for avrisp mode
 uint8_t progblock;                                // counter for progressdisplay
 uint8_t baudRate;                                 // Selected baudrate (default max)
 uint8_t logicSet;                                 // set logic blocks if any
+uint8_t screenState;                              // screen state for dimming & blanking
+uint8_t CaptureDataBuffer[MAXBUFSIZE];
 bool measure = false;                             // flag to start measurement
 bool cutOff = false;                              // cutoff enabled
 bool encOn = false;                               // Encoder passthrough enabled
@@ -94,15 +100,15 @@ bool newSPIdata_avail;                            // We recieved new SPI data
 bool slave_exit_mode;                             // Data in SPI_Out is irrelevant & flushed if this flag is set, slave ends current mode 
 bool slowSlave;                                   // Slave is running @ 8MHz
 bool PullUpActive;                                // PullUp is active
-bool lastclock;                                   // previous clocksignal
-bool allSPIisData;                                // 
-volatile bool slaveTimerRunning;                  // 
-volatile bool slaveAckReceived;                   //
-volatile bool slaveReadRequest;                   //  
+bool lastclock;                                   // previous clocksignal for logicblocks
+bool screenoff;                                   // 
+bool allSPIisData;                                // When enabled all SPI tranasction are preceded with the data command
+volatile bool slaveTimerRunning;                  // timeout timer for PDINT is running
+volatile bool slaveAckReceived;                   // Acknowledge recieved from slave (pulse from PDINT)
+volatile bool slaveReadRequest;                   // PDINT is a stable low
+
 control_struct control;                           // status control expander
-elapsedMillis timeout;                            // timeout for requencumeasurements
 parameter_struct param;                           // parameters for avrisp
-capture_struct curByte;                           // current capture byte
 Encoder_internal_state_t * Encoder::interruptArgs[];
 
 // Counter 100%
@@ -138,24 +144,21 @@ void counterInterrupt() {
   countme = true;
 }
 
-void sdaInterrupt() {
-  curByte.time = micros();
-  curByte.value = (uint8_t) GPIOD_PDIR & 0x0090;
-  if (!CaptureBuf.isFull()) { CaptureBuf.push(curByte); }
-  curByte.state = curByte.value;
+void captureBufferFull() {
+  dmachannel0.clearInterrupt();
 }
 
-void sclInterrupt() {
-  curByte.time = micros();
-  curByte.value = (uint8_t) GPIOD_PDIR & 0x0090;
-  if (!CaptureBuf.isFull()) { CaptureBuf.push(curByte); }
-  curByte.state = curByte.value;
+void PITimerOverflow() {
+  if (CaptureMinutesBuffer[0] < MAXTIMESPAN) {
+    CaptureMinutesBuffer[(uint8_t) CaptureMinutesBuffer[0]] = dmachannel0.TCD->DADDR;
+    CaptureMinutesBuffer[0]++;
+  }
 }
 
 void slaveTimerInterrupt() {
   slaveTimer.end();
+  if (slaveTimerRunning) { slaveAckReceived = true; }
   slaveTimerRunning = false;
-  slaveAckReceived = true;
   slaveReadRequest = !digitalReadFast(PDINT);
 }
 
@@ -169,283 +172,6 @@ digitalWrite(21, LOW);
   slaveTimerRunning = true;
 }
 
-//------------------------------------------------------------------------------ set digit in value
-void setDigitInValue(boolean subtract) {
-  byte myDigit = 8 - maxDigits + editValue;
-  uint8_t mystep = 1;
-  byte myval = (byte) myValue[myDigit];
-  switch (inputType) {
-    case INPUTNUMBER:
-      if (myDigit == 6) {
-        if (valuestep > 10) { mystep = valuestep / 10; }  
-      }
-      if (subtract) {
-        if (myval >= (0x30 + mystep)) { myValue[myDigit] = char(myval - mystep); }  
-      } else {
-        if (myval <= (0x39 - mystep)) { myValue[myDigit] = char(myval + mystep); } 
-      }
-      break;
-    case INPUTBINARY:
-      if (myval > 0x30) { 
-        myValue[myDigit] = 0x30;  
-      } else {
-        myValue[myDigit] = 0x31;
-      }
-      setValue = 0;
-      for (uint8_t i=0; i<8; i++) {
-        setValue = setValue << 1;
-        if (myValue[i] & 0x01) { setValue++; }
-      }
-      break;
-    default:
-      break;
-  }
-}
-
-//------------------------------------------------------------------------------ step value up/down
-void changeMyValue(boolean changeUp) {
-  uint8_t temp = 0;
-  switch (inputType) {
-    case INPUTNUMBER:
-      if (changeUp) {
-        setValue = atol(myValue);
-        if (setValue > maxValue) { setValue = maxValue; }
-        if (setValue <= (maxValue - valuestep)) {
-          setValue += valuestep;
-          snprintf(myValue, 10, "%08lu", setValue);
-        }
-      } else {
-        setValue = atol(myValue);
-        if (setValue > maxValue) { setValue = maxValue; }
-        if (setValue >= (0 + valuestep)) { 
-          setValue -= valuestep; 
-          snprintf(myValue, 10, "%08lu", setValue);
-        }
-      }
-      break;
-    case INPUTBAUD:
-      if (changeUp) {
-        if (baudRate < (sizeof(baudRates)/sizeof(baudRates[0])) - 1) { baudRate++; }
-      } else {
-        if (baudRate > 0) { baudRate--; }
-      }
-      setValue = baudRates[baudRate];
-      snprintf(myValue, 10, "%08lu", setValue);
-      break;
-    case INPUTBINARY:
-      if (changeUp) {
-        setValue++;
-      } else {
-        setValue--; 
-      }
-      setValue = setValue & 0xFF;
-      temp = setValue;
-      for (uint8_t i=8; i>0; i--) {
-        myValue[i - 1] = (temp & 0x01) + 0x30;
-        temp = temp >> 1;
-      }
-      break;
-    default:
-      break;
-  }
-}
-
-//------------------------------------------------------------------------------ get values from user
-// 0:OPTIONSTART, 1:OPTIONCANCEL, 2:OPTIONUPDOWN, 4:OPTIONOK, 3:OPTIONVALUES, 4:OPTIONSETVALUES, 5:OPTIONSETUPDOWN, 6:OK, 7:CANCEL
-void getUserValue() {
-  uint8_t mycol;
-  enum optionStates temp;
-  
-  temp = options;
-  if (encoder.up) {                                           // dial up
-    switch(options) {
-      case OPTIONOK:
-        if (valuestep < 10) {
-          editValue = maxDigits - 1;
-        } else {
-          editValue = maxDigits - 2;
-        }
-        if ((inputType == INPUTNUMBER) || (inputType == INPUTBINARY)) {
-          temp = OPTIONVALUES;
-        } else {
-          if (menuoptions == OPTIONSOKSETCANCEL || menuoptions == OPTIONSCANCEL) {
-            temp = OPTIONUPDOWN;
-          } else {
-            temp = OPTIONCANCEL;
-          }
-        }
-        break;
-      case OPTIONUPDOWN:
-        temp = OPTIONOK;
-        break;
-      case OPTIONCANCEL:
-        temp = OPTIONUPDOWN;
-        break;
-      case OPTIONVALUES:
-        editValue--;
-        if (editValue < 0) { temp = OPTIONUPDOWN; }
-        break;
-      case OPTIONSETVALUES:
-        setDigitInValue(true);
-        break;
-      case OPTIONSETUPDOWN:
-        changeMyValue(false);
-        break;
-      default:
-        break;
-    }
-  }
-  if (encoder.down) {                                         // dial down
-    switch(options) {
-      case OPTIONCANCEL:
-        editValue = 0;
-        temp = OPTIONVALUES;
-        break;
-      case OPTIONUPDOWN:
-        if ((inputType == INPUTNUMBER) || (inputType == INPUTBINARY)) {
-            editValue = 0;
-            temp = OPTIONVALUES;
-        } else {
-          if (menuoptions == OPTIONSOKSETCANCEL || menuoptions == OPTIONSCANCEL) {
-            temp = OPTIONCANCEL;
-          } else {
-            editValue = 0;
-            temp = OPTIONVALUES;
-          }
-        }
-        break;
-      case OPTIONOK:
-        temp = OPTIONUPDOWN;
-        break;
-      case OPTIONVALUES:
-        editValue++;
-        if (valuestep < 10) {
-          if (editValue >= maxDigits) { temp = OPTIONOK; }
-        } else {
-          if (editValue >= (maxDigits - 1)) { temp = OPTIONOK; }
-        }
-        break;
-      case OPTIONSETVALUES:
-        setDigitInValue(false);
-        break;
-      case OPTIONSETUPDOWN:
-        changeMyValue(true);
-        break;
-      default:
-        break;
-    }
-  }
-
-  if (encoder.sw) {                                           // dial clicked
-    switch(options) {
-      case OPTIONCANCEL:
-        temp = CANCEL;
-        cursoron.blinkon = false;
-        forcedisplay++;
-        break;
-      case OPTIONUPDOWN:
-        temp = OPTIONSETUPDOWN;
-        break;
-      case OPTIONOK:
-        if (inputType == INPUTNUMBER) {
-          setValue = atol(myValue);
-          if (setValue > maxValue) { 
-            setValue = maxValue;
-            snprintf(myValue, 10, "%08lu", setValue);
-          } else {
-            temp = OK;
-            cursoron.blinkon = false;
-            forcedisplay++;
-          }
-        }
-        if (inputType == INPUTBAUD) {
-            temp = OK;
-            cursoron.blinkon = false;
-            forcedisplay++;
-        }
-        if (inputType == INPUTBINARY) {
-            setValue = 0;
-            for (uint8_t i=0; i<8; i++) {
-              setValue = setValue << 1;
-              if (myValue[i] & 0x01) { setValue++; }
-            }
-            temp = OK;
-            cursoron.blinkon = false;
-            forcedisplay++;
-        }      
-        break;
-      case OPTIONVALUES:
-        temp = OPTIONSETVALUES;
-        break;
-      case OPTIONSETVALUES:
-        temp = OPTIONVALUES;
-        break;
-      case OPTIONSETUPDOWN:
-        temp = OPTIONUPDOWN;
-        break;
-      default:
-        break;     
-    }
-  }
-  options = temp;
-  if (inputType == INPUTBINARY) { writeToExpander((uint8_t) setValue); }
-  
-  sharedNavigation();
-  oled.fillRect(0, 16, 128, 17, SSD1306_BLACK);
-  oled.setCursor(5, 32);
-
-  for (uint8_t i=8 - maxDigits; i<8; i++) {
-    mycol = oled.getCursorX();
-    if (i == 8 - maxDigits + editValue) {
-      if (options == OPTIONSETVALUES) { nowcursor(myValue[i], true); }
-      if (options == OPTIONVALUES) { nowcursor(myValue[i]); }
-    }
-    oled.print(myValue[i]);
-    oled.setCursor(mycol + 7, 32);
-  }
-  
-  switch (valueType) {
-    case VALUEA:
-      oled.print(" mA");
-      break;
-    case VALUEV:
-      oled.print(" mV");
-      break;
-    case VALUEBAUD:
-      if (slowSlave) {
-        snprintf(myValue, 16, " (%.1f) baud", (float) baudErrLow[baudRate] / 10);
-      } else {
-        snprintf(myValue, 16, " (%.1f) baud", (float) baudErrHigh[baudRate] / 10);
-      }
-      oled.print(myValue);
-      snprintf(myValue, 10, "%08lu", setValue);
-      break;
-    case VALUENONE:
-      break;
-  }
-
-  if (sysState == MENUSETPINSSETVALUEACTIVE) {
-    bytePins = setValue;
-    writeToExpander(bytePins);
-  }
-}
-
-//------------------------------------------------------------------------------ init get value
-void setUserValue(unsigned long valueToSet, uint8_t valstep) {
-  char mymaxValue[10];
-  setValue = valueToSet;
-  editValue = 0;
-  options = OPTIONOK;
-  encoder.sw = false;
-  snprintf(mymaxValue, 10, "%lu", maxValue);
-  snprintf(myValue, 10, "%08lu", setValue);
-  maxDigits = strlen(mymaxValue);
-  valuestep = valstep;
-  if (inputType == INPUTBAUD) { valueType = VALUEBAUD; }
-  if (inputType == INPUTBINARY) { valueType = VALUENONE; }
-  getUserValue();
-}
-
 //------------------------------------------------------------------------------ process communications
 void houseKeeping() {
   unsigned long now_time = millis();                               // check cursor & display 
@@ -453,11 +179,8 @@ void houseKeeping() {
     last_time = now_time;
     measure = !measure;
     if (sysState == MENUVOLTMETERACTIVE) { displayVoltmeter(); }
-
-    if (freqLowOn && timeout > 500) { showFreqLowCount(); }
-    
+    if (freqLowOn && frequencyTimeout > 500) { showFreqLowCount(); }
     processCursor();
-    
     if (measure) {                                                 // Is it time for a current/voktage measurment?
       curAmp = ina219.getCurrent_mA();
       curVolt = ina219.getBusVoltage_V();
@@ -476,17 +199,23 @@ void houseKeeping() {
       slaveAckReceived = false;                                    // init vars
       digitalWrite(PDSLAVE, LOW);                                  // start transaction
       SPI.transfer(cmdENQ_ReadAck);                                // Confirm send request from slave
-      while(!slaveAckReceived);                                    // Wait for confirmation from slave for next byte
+      slaveTimeout = 0;
+      while(!slaveAckReceived && slaveTimeout < SPITIMEOUT);       // Wait for confirmation from slave for next byte
       slaveAckReceived = false;
       while (!SPI_In.isFull() && !transdone) {                     // Read bytes until buffer full or transfer is done
         spidata = SPI.transfer(0x00);                              // Send 0x00, recieve data from slave
         SPI_In.push(spidata);                                      // Add to ringbuffer
-        while(!slaveAckReceived);                                  // Wait for confirmation from slave for next byte
+        slaveTimeout = 0;
+        while(!slaveAckReceived && slaveTimeout < SPITIMEOUT);     // Wait for confirmation from slave for next byte
         slaveAckReceived = false;
         if (!slaveReadRequest) {                                   // If slave has no more data, it will stop sending Acks, the timer
           transdone = true;                                        //   will runout and we get an slaveAckReceived & slaveReadReq 
         }                                                          //   will be false
       }
+      if (slaveTimerRunning) { 
+        slaveTimer.end();
+        slaveTimerRunning = false;
+      } 
       digitalWrite(PDSLAVE, HIGH);
       SPI.endTransaction();
       newSPIdata_avail = true;
@@ -500,14 +229,16 @@ void houseKeeping() {
     slaveAckReceived = false;
     if (allSPIisData) {                                            // In this mode all outgoing transactions are automatically
         spidata = SPI.transfer(cmdSTX_DataNext);                   //     preceded by the cmdSTX_DataNext command to the slave
-        while(!slaveAckReceived);                                  // Wait for confirmation from slave for next byte
+        slaveTimeout = 0;
+        while(!slaveAckReceived && slaveTimeout < SPITIMEOUT);     // Wait for confirmation from slave for next byte
         slaveAckReceived = false;
     }
     while (!SPI_Out.isEmpty())                                     // Keep sending bytes until the buffer is empty
     {
       SPI_Out.pop(spidata);
       spidata = SPI.transfer(spidata);
-      while(!slaveAckReceived);                                    // Wait for confirmation from slave for next byte
+      slaveTimeout = 0;
+      while(!slaveAckReceived && slaveTimeout < SPITIMEOUT);       // Wait for confirmation from slave for next byte
       slaveAckReceived = false;
     }
     SPI.endTransaction();
@@ -517,27 +248,32 @@ void houseKeeping() {
 
   long newPosition = myEnc.read() >> 2;                            // Read encoder
   if (newPosition != oldPosition) {
+    checkScreen();
     if (oldPosition > newPosition) { encoder.up = true; }
     if (oldPosition < newPosition) { encoder.down = true; }
     oldPosition = newPosition;
   }
 
   multiresponseButton.poll();                                     // Poll switches
-  if (multiresponseButton.singleClick()) { encoder.sw = true; }   // short press encoder
+  if (multiresponseButton.singleClick()) { 
+    checkScreen();
+    encoder.sw = true; 
+  }   // short press encoder
   if (encOn) {
     if (multiresponseButton.pushed()) { writeToExpander(0x10); }  // emulate enc sw on pin 5
     if (multiresponseButton.released()) { writeToExpander(0x0); } 
   }
-
-  if (!stopProg) { displayISPAVRProgrammer(); }
+  if (sysState == MENUPROGISPAVRACTIVE) { displayISPAVRProgrammer(); }
 }
 
 //------------------------------------------------------------------------------ setup
 void setup() {
-  Serial.begin(115200);                                  // Setup serial
+  Serial.begin(500000);                                  // Setup serial
   Wire.begin();                                          // Setup I2C @ 400kHz
   Wire.setClock(400000L);
   disableGPIO();
+  screenState = 0;
+  screenTimeout = 0;
   oled.begin(SSD1306_SWITCHCAPVCC, OLEDADDRESS);         // Initialize OLED
   oled.clearDisplay();
   oled.setFont(&verdana6pt7b);
@@ -581,7 +317,24 @@ void setup() {
   encoder.sw = false;
   encoder.swold = true;                                  // if pull-up
   sharedNavigation();
-  
+
+  dmachannel0.begin(true);                                                      // Channel to capture pindata
+  dmachannel0.source(GPIOD_PDIR);                                               // Port D input register
+  dmachannel0.destinationBuffer((uint32_t *) CaptureDataBuffer, sizeof(CaptureDataBuffer));
+  dmachannel0.triggerAtHardwareEvent(DMAMUX_SOURCE_PORTD);                      // pin changes on PORT D
+  dmachannel0.transferSize(1);                                                  // 1 byte each transfer (instead of 4!)
+  dmachannel0.transferCount(sizeof(CaptureDataBuffer));                         // Untill buffer full
+  dmachannel0.attachInterrupt(captureBufferFull);
+  dmachannel0.disableOnCompletion();
+  dmachannel0.interruptAtCompletion();
+  dmachannel1.begin(true);                                                      // Channel to capture timestamp (1/36 us @ 72MHz)
+  dmachannel1.source(PIT_CVAL0);                                                // current countdownvalue of PIT0
+  dmachannel1.destinationBuffer((uint8_t *) CaptureTimeBuffer, sizeof(CaptureTimeBuffer)*4); 
+  dmachannel1.triggerAtHardwareEvent(DMAMUX_SOURCE_PORTD);                      // pin changes on PORT D
+  dmachannel1.transferSize(4);                                                  // 1 byte each transfer?
+  dmachannel1.transferCount(sizeof(CaptureTimeBuffer)/4);                       // Untill buffer full
+  dmachannel1.disableOnCompletion();
+
   baudRate = (sizeof(baudRates)/sizeof(baudRates[0])) - 1; // Default baudrate = max
   attachInterrupt(digitalPinToInterrupt(EXPINT), expanderInterrupt, FALLING);
   slaveTimerRunning = false;
@@ -603,7 +356,6 @@ void setup() {
 //------------------------------------------------------------------------------ loop
 void loop() {
   bool tmpDTR, tmpRTS;
-  capture_struct capturedata;
   houseKeeping();
 
   if (sysState == MENUPROGESPACTIVE) {
@@ -636,11 +388,6 @@ void loop() {
     readTrigger = false;
     if (sysState == MENUPINMONITORACTIVE) { 
       readFromExpander();
-      if (!CaptureBuf.isFull()) {
-        capturedata.time = millis();
-        capturedata.value = bytePins;
-        CaptureBuf.push(capturedata);
-      }
       pinMonitor();
     }
     if (sysState == MENULOGICACTIVE) {
@@ -649,7 +396,7 @@ void loop() {
     }
   }
 
-  if (freqLowOn) {                                                // if counter mode, count
+  if (freqLowOn) {                                                 // if counter mode, count
     if (freq1.available()) {
       sum1 = sum1 + freq1.read();
       count1 = count1 + 1;
@@ -657,7 +404,7 @@ void loop() {
   }
   if (freqHighOn && FreqCount.available()) { forcedisplay++; }
 
-  if (sysState == MENUCOUNTCOUNTERACTIVE) { 
+  if (sysState == MENUCOUNTCOUNTERACTIVE) {                        // Process & show counter
     if (countme) { showCounter(); }
     if (encoder.lp) {
       detachInterrupt(digitalPinToInterrupt(GPIO1));
@@ -669,7 +416,14 @@ void loop() {
     }
   }
 
-  if (!stopProg) { avrisp_loop(); }
+  if (sysState == MENUPROGISPAVRACTIVE) { avrisp_loop(); }
 
-  processMenu();                                                  // Process menu
+  processMenu();                                                   // Process menu
+
+  if (screenTimeout > setScreenTimeOut) {
+    if (screenState == 0) {
+      oled.dim(true);
+      screenState = 1;
+    }
+  }
 }

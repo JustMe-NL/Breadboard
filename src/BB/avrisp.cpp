@@ -133,12 +133,10 @@ uint8_t getch() {
   //while (!Serial.available());
   //return Serial.read();
   uint8_t serialData = 0x00;
-  while(SPI_In.isEmpty() && !stopProg) {
+  while(SPI_In.isEmpty() && sysState == MENUPROGISPAVRACTIVE) {
     houseKeeping();
   }
-  if (!stopProg) {
-    SPI_In.pop(serialData);
-  }
+  SPI_In.pop(serialData);
   return serialData;
 }
 

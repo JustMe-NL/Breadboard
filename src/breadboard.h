@@ -16,6 +16,7 @@
 #include <SPI.h>                                            // SPI
 #include <DallasTemperature.h>                              // DS18B20
 #include <RingBuf.h>
+#include "dmachannel.h"
 #include <verdana6pt7b.h>
 #include <BreadboardProtocol.h>
 
@@ -33,7 +34,10 @@
 //------------------------------------------------------------------------------ constants defines
 //#define debug
 
-#define PDINT_TIME                      100               // Timeout in us for stable PD_INT signal
+#define PDINT_TIME                      100               // Timeout in us for stable PDINT signal
+#define SPITIMEOUT                      100               // Timeout in ms waiting for Acknowledge signal from slave
+#define MAXBUFSIZE                      4096              // Maximum capturebuffersize 
+#define MAXTIMESPAN                     16                // Maximum recording minutes
 
 #define NVRAM_INTEGER                   0x4003E000
 #define MCP_ADDRESS                     0x20
@@ -113,6 +117,17 @@ enum inputTypes {
   INPUTHEXADECIMAL
 };
 
+enum I2CBufferStates {
+  I2CIDLE                         = 0x00,
+  I2CSTART                        = 0x01,
+  I2CADDRESSBITS                  = 0x02,
+  I2CREADWRITE                    = 0x03,
+  I2CADDRESSACKNAK                = 0x04,
+  I2CDATABITS                     = 0x05,
+  I2CDATAACKNAK                   = 0x06,
+  I2CSTOP                         = 0x07
+};
+
 enum systemStates {           
   MENUCOUNTER,                
   MENUCOUNTCOUNTER,           
@@ -138,7 +153,9 @@ enum systemStates {
   MENUI2CSCANACTIVE,          
   MENUI2CSCANCOMPLETE,
   MENUI2CSCANMONITOR,
-  MENUI2CSCANMONITORACTIVE,      
+  MENUI2CSCANMONITORACTIVE,
+  MENUI2CSCANEXPORT,
+  MENUI2CSCANEXPORTACTIVE,
   MENUI2CSCANINFO,
   MENUI2CSCANINFOACTIVE,
   MENUI2CSCANEXIT,      
@@ -332,12 +349,6 @@ typedef struct param {
   uint32_t flashsize;
 } parameter_struct;
 
-typedef struct {
-  unsigned long time;
-  uint8_t state;
-  uint8_t value;
-} capture_struct;
-
 //------------------------------------------------------------------------------ macros
 
 #ifndef cbi
@@ -347,9 +358,13 @@ typedef struct {
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
 #endif
 
+#ifndef maxpit0
+#define maxpit0 (F_BUS * 60) -1
+#endif
+
 //------------------------------------------------------------------------------ objects
 extern Adafruit_SSD1306 oled;
-extern Adafruit_INA219 ina219;                           // current & volt meter
+extern Adafruit_INA219 ina219;                            // current & volt meter
 extern Encoder myEnc;
 extern Switch multiresponseButton;
 extern SoftWire i2c;
@@ -358,7 +373,10 @@ extern FreqMeasureMulti freq1;
 extern PWMServo myservo;
 extern RingBuf<uint8_t, 256> SPI_In;
 extern RingBuf<uint8_t, 256> SPI_Out;
-extern RingBuf<capture_struct, 4096> CaptureBuf;
+extern elapsedMillis screenTimeout;                      // timeout for screen blanking
+extern elapsedMillis frequencyTimeout;                   // timeout for requencumeasurements
+extern DMAChannel dmachannel0;
+extern DMAChannel dmachannel1;
 
 //------------------------------------------------------------------------------ enums & structs
 extern enum optionStates options;                        // Options states in userinput routine
@@ -374,11 +392,15 @@ extern float sum1;
 extern float curVolt;                                 // current measured voltage
 extern float curAmp;                                  // current measured milliampere
 extern long oldPosition;                              // encoder tracking
+extern unsigned long setScreenTimeOut;                // Screen timeout for blanking
 extern unsigned long last_interrupt_time;             // software debounce
 extern unsigned long last_lp_interrupt_time;          // long press
 extern unsigned long last_time;                       // cursor timing
 extern unsigned long maxValue;                        // maximum value for input
 extern unsigned long setValue;                        // current input value
+extern uint32_t CaptureTimeBuffer[MAXBUFSIZE];
+extern uint32_t CaptureMinutesBuffer[MAXTIMESPAN];
+extern uint32_t CapturePointer;
 extern int count1;                                    // countvar for frequencymeasurment
 extern int error;                                     // avrisp
 extern int pmode;                                     // avrisp
@@ -404,6 +426,7 @@ extern uint8_t progmode;                              // boolean for avrisp mode
 extern uint8_t progblock;                             // counter for progressdisplay
 extern uint8_t baudRate;                              // Selected baudrate (default max)
 extern uint8_t logicSet;                              // set logic blocks if any
+extern uint8_t screenState;                           // screen state for dimming & blanking
 extern bool measure;                                  // flag to start measurement
 extern bool cutOff;                                   // cutoff enabled
 extern bool encOn;                                    // Encoder passthrough enabled
@@ -425,15 +448,14 @@ extern bool newSPIdata_avail;                         // We recieved new SPI dat
 extern bool slave_exit_mode;                          // Data in SPI_Out is irrelevant & flushed if thios flag is set, slave ends current mode 
 extern bool slowSlave;                                // Slave is running @ 8MHz
 extern bool PullUpActive;                             // PullUp for is active
-extern bool lastclock;                                // previous clocksignal
-extern bool allSPIisData;
-extern volatile bool slaveTimerRunning;                        // 
-extern volatile bool slaveAckReceived;                         //
-extern volatile bool slaveReadRequest;                         //  
+extern bool lastclock;                                // previous clocksignal for logicblocks
+extern bool allSPIisData;                             //
+extern volatile bool slaveTimerRunning;               // 
+extern volatile bool slaveAckReceived;                //
+extern volatile bool slaveReadRequest;                //  
 extern control_struct control;                        // status control expander
-extern elapsedMillis timeout;                         // timeout for requencumeasurements
 extern parameter_struct param;                        // parameters for avrisp
-extern capture_struct curByte;
+extern uint8_t CaptureDataBuffer[MAXBUFSIZE];
 
 
 //------------------------------------------------------------------------------ constant vars
@@ -694,3 +716,12 @@ void display7Segment();
 void displayLogic();
 void showlogicPins(uint8_t myx, byte value, bool showPin3);
 void displayScreenSet();
+void checkScreen();
+void sdaInterrupt();
+void sclInterrupt();
+void displayI2CMonitor();
+void displayExport();
+void rawI2CExport();
+void salaeProtocolExport();
+void I2CprotocolExport();
+void printTo(char bufferToPrint[], uint8_t sizeOfBuffer);
