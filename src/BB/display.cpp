@@ -508,14 +508,14 @@ void showFreqLowCount() {
 
   oled.fillRect(0, 16, 128, 19, SSD1306_BLACK);
   oled.setCursor(5, 32);
-  if (frequencyTimeout > 500) {
+  if (timeoutTimer > 500) {
     if (count1 > 0) {
       snprintf(myValue, 16, "%.3f", (float) freq1.countToFrequency(sum1 / count1));
       oled.print(myValue);
       oled.print(" Hz");
       count1 = 0;
       sum1 = 0;
-      frequencyTimeout = 0;
+      timeoutTimer = 0;
     } else {
       oled.print("(no pulses)");
     }
@@ -1439,47 +1439,47 @@ void displayScreenSet() {
 }
 
 void displayI2CMonitor() {
-  uint32_t tempPointer;
   //enum optionStates temp;
   //temp = options;
+
+/*
+  Statechanges or Timed - frequency
+  Trigger @ start
+*/
   if (firstrun) {
     enableGPIO();
+    detachMainInterrupts();
     oled.fillRect(0, 16, 128, 33, SSD1306_BLACK);
     sharedNavigation();
     oled.setCursor(5, 32);
     oled.print("Capturing...");
-    pinMode(5, INPUT);
-    CORE_PIN5_CONFIG = PORT_PCR_IRQC(3)|PORT_PCR_MUX(1);           // Enable DMA Interrupt on change
-    pinMode(6, INPUT);
-    CORE_PIN6_CONFIG = PORT_PCR_IRQC(3)|PORT_PCR_MUX(1);           // Enable DMA Interrupt on change
-    for (uint8_t i = 0; i < MAXTIMESPAN; i++) {
-      CaptureMinutesBuffer[i] = 0x00000000;
-    }
     firstrun = false;
     encoder.sw = false;
     options = OPTIONOK;
     menuoptions = OPTIONSOKSET;
-    dmachannel0.enable();
-    dmachannel1.enable();
-  }
-
-  if (dmachannel0.complete()) {
-    oled.fillRect(0, 16, 128, 33, SSD1306_BLACK);
-    sharedNavigation();
-    oled.setCursor(5, 32);
-    oled.print("Buffer full");
+    // Setup capture vars, timers & interrupts
+    CapturePointer = 0;
+    pinMode(GPIO1, INPUT);
+    pinMode(GPIO2, INPUT);
+    pinMode(I2CTRGR, INPUT);
+    PITimer0.period(60.0);
+    PITimer1.period(255.0); 
+    PITimer1.start(maxtimeCaptureInterrupt);
+    bitSet(PIT_TCTRL1, 2);                                          // Chainmode enabled
+    //bitClear(PIT_TCTRL1, 1);                                        // Disable interrupts
+    PITimer0.start(maxtimeCaptureInterrupt);
+    bitClear(PIT_TCTRL0, 1);                                        // Disable interrupts
+    attachInterrupt(GPIO2, pinGPIO2Interrupt, RISING);              // SDA
+    attachInterrupt(I2CTRGR, pinI2CTRGRInterrupt, FALLING);         // SDA changes with high SCL
+    NVIC_SET_PRIORITY(IRQ_PORTD, 17);
   }
 
   if (encoder.sw) {
-    if (!dmachannel0.complete()) {
-      CapturePointer = dmachannel0.TCD->DADDR;
-      dmachannel0.disable();
-      dmachannel1.disable();
-      CORE_PIN5_CONFIG = PORT_PCR_IRQC(0)|PORT_PCR_MUX(1);           // Disable DMA Interrupt on change
-      CORE_PIN5_CONFIG = PORT_PCR_IRQC(0)|PORT_PCR_MUX(1);           // Disable DMA Interrupt on change
-      tempPointer = &CaptureDataBuffer[0];
-      CapturePointer = CapturePointer - tempPointer;
-    }
+    detachInterrupt(GPIO2);
+    detachInterrupt(I2CTRGR);
+    attachMainInterrupts();
+    PITimer0.stop();
+    PITimer1.stop();
     options = OK;
     encoder.sw = false;
     forcedisplay++;
@@ -1512,9 +1512,9 @@ void displayExport() {
   SPI_Out.clear();
   //enableUSB2Serial(modeSPI_USB);
   //allSPIisData = true;
-  //disableSlaveModes();
+  disableSlaveModes();
   //Serial.println("RAW");
-  //rawI2CExport();
+  rawI2CExport();
   //Serial.println("Salae:");
   //salaeProtocolExport();
   //Serial.println("HRF");

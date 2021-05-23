@@ -56,8 +56,7 @@ void processMenu() {
           options = OPTIONOK;
           count1 = 0;
           sum1 = 0;
-          frequencyTimeout = 0;
-          freqLowOn = true;
+          timeoutTimer = 0;
           firstrun = true;
           encoder.sw = false;
           freq1.begin(GPIO1);
@@ -75,7 +74,6 @@ void processMenu() {
           sysState = MENUCOUNTFREQHIGHACTIVE;
           menuoptions = OPTIONSOK;
           options = OPTIONOK;
-          freqHighOn = true;
           firstrun = true;
           FreqCount.begin(100);
           encoder.sw = false;
@@ -111,7 +109,6 @@ void processMenu() {
           sysState = MENUENCODERACTIVE;
           menuoptions = OPTIONSOK;
           myEnc.setCopy(true);
-          encOn = true;
         }
         break;
       case MENUENCODERINFO:
@@ -314,7 +311,6 @@ void processMenu() {
           options = OPTIONOK;
           disableGPIO();
           writeToExpander(0xFF);
-          pinmonOn = true;
           encoder.sw = false;
           readFromExpander();
         }
@@ -328,7 +324,6 @@ void processMenu() {
           options = OPTIONOK;
           disableGPIO();
           writeToExpander(0xFF);
-          pinmonOn = true;
           encoder.sw = false;
           readFromExpander();
         }
@@ -739,7 +734,6 @@ void processMenu() {
       case MENUCOUNTFREQLOWACTIVE:
         showFreqLowCount();
         if ((options == OK) || (options == CANCEL)) { 
-          freqLowOn = false;
           freq1.end();
           digitalWrite(COUNTEN, LOW);
           sysState = MENUCOUNTFREQLOW;
@@ -755,7 +749,6 @@ void processMenu() {
       case MENUCOUNTFREQHIGHACTIVE:
         showFreqHighCount();
         if ((options == OK) || (options == CANCEL)) { 
-          freqHighOn = false;
           FreqCount.end();
           changePin(COUNTR, false);
           digitalWrite(COUNTEN, LOW);
@@ -1001,7 +994,6 @@ void processMenu() {
       case MENUPINMONITORACTIVE:
         pinMonitor();
         if (options == CANCEL || options == OK) {
-          pinmonOn = false;
           menuoptions = OPTIONSOK;
           sysState = MENUPINMONITOR;
           options = OPTIONOK;
@@ -1015,7 +1007,6 @@ void processMenu() {
       case MENUPINMONITOR7SEGMENTACTIVE:
         display7Segment();
         if (options == CANCEL || options == OK) {
-          pinmonOn = false;
           menuoptions = OPTIONSOK;
           sysState = MENUPINMONITOR7SEGMENT;
           options = OPTIONOK;

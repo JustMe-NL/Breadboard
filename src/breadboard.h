@@ -16,7 +16,7 @@
 #include <SPI.h>                                            // SPI
 #include <DallasTemperature.h>                              // DS18B20
 #include <RingBuf.h>
-#include "dmachannel.h"
+#include <PITimer.h>                                        // Neede changes to IntervalTimer.cpp in ~/.platformio/packages/framework-arduinoteensy/cores/teensy3
 #include <verdana6pt7b.h>
 #include <BreadboardProtocol.h>
 
@@ -36,7 +36,7 @@
 
 #define PDINT_TIME                      100               // Timeout in us for stable PDINT signal
 #define SPITIMEOUT                      100               // Timeout in ms waiting for Acknowledge signal from slave
-#define MAXBUFSIZE                      4096              // Maximum capturebuffersize 
+#define MAXBUFSIZE                      8192              // Maximum capturebuffersize 
 #define MAXTIMESPAN                     16                // Maximum recording minutes
 
 #define NVRAM_INTEGER                   0x4003E000
@@ -68,8 +68,8 @@
 #define mySDA                           18                // Hardware SDA
 #define mySCL                           19                // Hardware SCL
 #define EXPINT                          20                // Expander interrupt
-#define TNC2                            21                // Spare Digital A7 PWM
-#define TNC3                            22                // Spare Digital A8 PWM Touch
+#define I2CTRGR                         21                // Hardwrae trigger for I2C start/stop signals
+#define TNC2                            22                // Spare Digital A8 PWM Touch
 #define VOLTSENSE                       23                // Stepper voltage
 
 #define beget16(addr) (*addr * 256 + *(addr+1) )          // avrisp
@@ -373,10 +373,7 @@ extern FreqMeasureMulti freq1;
 extern PWMServo myservo;
 extern RingBuf<uint8_t, 256> SPI_In;
 extern RingBuf<uint8_t, 256> SPI_Out;
-extern elapsedMillis screenTimeout;                      // timeout for screen blanking
-extern elapsedMillis frequencyTimeout;                   // timeout for requencumeasurements
-extern DMAChannel dmachannel0;
-extern DMAChannel dmachannel1;
+extern elapsedMillis timeoutTimer;                       // standard timout Timer
 
 //------------------------------------------------------------------------------ enums & structs
 extern enum optionStates options;                        // Options states in userinput routine
@@ -398,9 +395,7 @@ extern unsigned long last_lp_interrupt_time;          // long press
 extern unsigned long last_time;                       // cursor timing
 extern unsigned long maxValue;                        // maximum value for input
 extern unsigned long setValue;                        // current input value
-extern uint32_t CaptureTimeBuffer[MAXBUFSIZE];
-extern uint32_t CaptureMinutesBuffer[MAXTIMESPAN];
-extern uint32_t CapturePointer;
+extern uint32_t CaptureSecBuffer[MAXBUFSIZE];        // Buffer for time in us from monitoring functions
 extern int count1;                                    // countvar for frequencymeasurment
 extern int error;                                     // avrisp
 extern int pmode;                                     // avrisp
@@ -410,6 +405,7 @@ extern uint16_t setVolt;                              // req voltage
 extern uint16_t setAmpCO;                             // set milliampere cut off
 extern uint16_t buffer[256];                          // buffer for I2C adresses & oneWire
 extern uint16_t buff[256];                            // global block storage
+volatile extern uint16_t CapturePointer;              // Pointer to last DMA address
 extern char myValue[22];                              // buffer for current setting
 extern int8_t editValue;                              // current digit to be edited
 extern int8_t hbdelta;                                // avrisp
@@ -427,12 +423,10 @@ extern uint8_t progblock;                             // counter for progressdis
 extern uint8_t baudRate;                              // Selected baudrate (default max)
 extern uint8_t logicSet;                              // set logic blocks if any
 extern uint8_t screenState;                           // screen state for dimming & blanking
+extern uint8_t CaptureDataBuffer[MAXBUFSIZE];         // Buffer for values from monitoring functions
+extern uint8_t CaptureMinBuffer[MAXBUFSIZE];
 extern bool measure;                                  // flag to start measurement
 extern bool cutOff;                                   // cutoff enabled
-extern bool encOn;                                    // Encoder passthrough enabled
-extern bool pinmonOn;                                 // Pin monitor interrupt enabled
-extern bool freqLowOn;                                // flag for low frequency measurement 
-extern bool freqHighOn;                               // flag for high frequency measurement
 extern bool firstrun;                                 // flag to indicate display routines this is the 1st time they run
 extern bool countme;                                  // Interrupt accrued
 extern bool stopProg;                                 // flag to abort avrisp mode  
@@ -449,13 +443,14 @@ extern bool slave_exit_mode;                          // Data in SPI_Out is irre
 extern bool slowSlave;                                // Slave is running @ 8MHz
 extern bool PullUpActive;                             // PullUp for is active
 extern bool lastclock;                                // previous clocksignal for logicblocks
-extern bool allSPIisData;                             //
-extern volatile bool slaveTimerRunning;               // 
-extern volatile bool slaveAckReceived;                //
-extern volatile bool slaveReadRequest;                //  
+extern bool allSPIisData;                             // Flag for SPI communication
+extern bool dmaStopped;                               // DMA channels & PIT running
+extern volatile bool slaveTimerRunning;               // Timingflag for SPI acknowledge signals
+extern volatile bool slaveAckReceived;                // Flag for Ack recieved from slave
+extern volatile bool slaveReadRequest;                // Flag for readrequest from slave
 extern control_struct control;                        // status control expander
 extern parameter_struct param;                        // parameters for avrisp
-extern uint8_t CaptureDataBuffer[MAXBUFSIZE];
+
 
 
 //------------------------------------------------------------------------------ constant vars
@@ -719,9 +714,18 @@ void displayScreenSet();
 void checkScreen();
 void sdaInterrupt();
 void sclInterrupt();
+void dmaTimerInterrupt();
 void displayI2CMonitor();
 void displayExport();
 void rawI2CExport();
 void salaeProtocolExport();
 void I2CprotocolExport();
 void printTo(char bufferToPrint[], uint8_t sizeOfBuffer);
+void attachMainInterrupts();
+void detachMainInterrupts();
+void pdInterrupt();
+void pinGPIO2Interrupt();
+void pinI2CTRGRInterrupt();
+void pinGPIO2InterruptFast();
+void pinI2CTRGRInterruptFast();
+void maxtimeCaptureInterrupt();
