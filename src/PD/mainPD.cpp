@@ -44,7 +44,8 @@ RingBuf<uint8_t, 256> SPI_In;                               // Ringbuffer data r
 RingBuf<uint8_t, 256> SPI_Out;                              // Ringbuffer data to be transmitted to SPI
 RingBuf<uint8_t, 256> Serial_In;                            // Ringbuffer SPI in
 RingBuf<uint8_t, 256> Serial_Out;                           // Ringbuffer SPI out
-uint8_t spidata, curBaudrate;
+volatile uint8_t spidata;
+uint8_t curBaudrate;
 bool transactionbusy;                                       // SPI transaction in progress?
 bool writemode;                                             // SPI data from master
 bool readmode;                                              // SPI data from slave
@@ -94,10 +95,8 @@ void setup (void)
 #endif
 }
 
-// SPI interrupt routine
-ISR (SPI_STC_vect) {                                               // His masters voice is heard :)
-  uint8_t spidata_out, spidata_in;
-  spidata_in = SPDR;                                               // Get the data
+void processSPIdata(uint8_t spidata_in) {
+  uint8_t spidata_out;                                              // Get the data
   if (writemode) {
     if (!SPI_In.isFull()) { 
       SPI_In.push(spidata_in);                                     // If room in the buffer, store it.
@@ -152,10 +151,15 @@ ISR (SPI_STC_vect) {                                               // His master
         bitSet(PORTF, 7);
       }  
     } else {                                                       // We did not process the last databurst ...
-      bitSet(PORTF, 7);
+      spidata = spidata_in;
       delayedACK = true;
     }
   }
+}
+
+// SPI interrupt routine
+ISR (SPI_STC_vect) {                                               // His masters voice is heard :)
+  processSPIdata(SPDR);
 }
 
 void loop (void)
@@ -192,9 +196,7 @@ void loop (void)
         if (pdState == stateSPI_Serial) {
           Serial1.write(mydata);                                   // Data fro SPI to Serial1
         } else {
-          //Keyboard.write(mydata);
-          //Serial.print(mydata, HEX);
-          Serial.write(mydata);
+          Keyboard.write(mydata);
         }
       }
     } else {
@@ -250,11 +252,8 @@ void loop (void)
     SPI_In.clear();
   }
 
-  if (delayedACK) {
-    if (SPI_In.isEmpty()) {
-      delayedACK = false;
-      bitSet(PORTF, 7);
-      bitClear(PORTF, 7);
-    }
+  if (delayedACK && !processingSPIdata) {
+    delayedACK = false;
+    processSPIdata(spidata);
   }
 }

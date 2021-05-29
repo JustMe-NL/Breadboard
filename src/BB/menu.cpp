@@ -208,6 +208,7 @@ void processMenu() {
         if (encoder.up) { sysState = MENUI2CSCANINFO; }
         if (encoder.down) { sysState = MENUI2CSCANPULLUPONOFF; }
         if (encoder.sw) { 
+          disableGPIO();
           PullUp(false);
           sysState = MENUI2CSCAN;
         }
@@ -660,7 +661,7 @@ void processMenu() {
         }
         break;
       case MENUSWDEBOUNCEINFO:
-        if (encoder.up) { sysState = MENUSERIALONOFF; }
+        if (encoder.up) { sysState = MENUSWDEBOUNCEONOFF; }
         if (encoder.down) { sysState = MENUSWDEBOUNCEEXIT; }
         if (encoder.sw) { 
           firstrun = true;
@@ -856,7 +857,7 @@ void processMenu() {
         break;
       case MENUI2CSCANEXPORTACTIVE:
         displayExport();
-        if ((options == OK) || (options == CANCEL)) { 
+        if (options == CANCEL) { 
           sysState = MENUI2CSCANEXPORT;
           menuoptions = OPTIONSOK;
           options = OPTIONOK;

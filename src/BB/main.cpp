@@ -16,8 +16,8 @@
 // void loop()
 
 //------------------------------------------------------------------------------ objects
-Adafruit_SSD1306 oled = Adafruit_SSD1306(128, 64, &Wire);                       // Oled display
-Adafruit_INA219 ina219;                           // current & volt meter       // Power & current measurment
+Adafruit_SSD1306 oled(128, 64, &Wire);                                          // Oled display
+Adafruit_INA219 ina219;                                                         // Power & current measurment
 Encoder myEnc(ENCA, ENCB, GPIO1, GPIO2);                                        // Modified encoder library using interrupts 
 Switch multiresponseButton = Switch(ENCSW, INPUT, LOW, 50, 3000);               // Switch debouncing with longpress
 SoftWire i2c(GPIO1, GPIO2);                                                     // Software I2C library
@@ -78,6 +78,7 @@ uint8_t progblock;                                // counter for progressdisplay
 uint8_t baudRate;                                 // Selected baudrate (default max)
 uint8_t logicSet;                                 // set logic blocks if any
 uint8_t screenState;                              // screen state for dimming & blanking
+uint8_t exportoption;
 uint8_t CaptureDataBuffer[MAXBUFSIZE];
 uint8_t CaptureMinBuffer[MAXBUFSIZE];
 bool measure = false;                             // flag to start measurement
@@ -111,20 +112,19 @@ Encoder_internal_state_t * Encoder::interruptArgs[];
 
 // Counter 100%
 // Encoder 100%
-// I2C Scanner
-//    monitor, capture, export (serial & keyboard?)
-// Logic Blocks
-//    inverter, fix signal display
+// I2C Scanner 100%
+// Logic Blocks 100%
 // OneWire 100%
 // Pin monitor
-//    monitor, capture, export, 7-segments
+//    capture, export, 7-segments (broken)
 // Power
 //    set voltage, current
 //    Cut off
-// Programmer 100%
+// Programmer
+//    (Re)check, ESP
 // Pulse generator 100%
 // Screen settings
-//    missing
+//    timeout?
 // Serial
 //    monitor
 // Servo 100%
@@ -163,7 +163,7 @@ void pdInterrupt() {
 //------------------------------------------------------------------------------ I2C SCL trigger
 void pinGPIO2Interrupt() {
   if (CapturePointer < MAXBUFSIZE) {
-    CaptureDataBuffer[CapturePointer] = GPIOD_PDIR;
+    CaptureDataBuffer[CapturePointer] = GPIOD_PDIR & 0xFE;
     CaptureSecBuffer[CapturePointer] = PIT_CVAL0;
     CaptureMinBuffer[CapturePointer] = (uint8_t) PIT_CVAL1;
     CapturePointer++;
@@ -199,15 +199,15 @@ void houseKeeping() {
       curVolt = ina219.getBusVoltage_V();
       if (curAmp < 0) { curAmp = 0; }
       dispHeader();
-    }
-    switch (sysState) {                                            // Slow refresh
-      case MENUVOLTMETERACTIVE:
-      case MENUI2CSCANMONITORACTIVE:
-      case MENUPROGISPAVRACTIVE:
-        forcedisplay++;
-        break;
-      default:
-        break;
+      switch (sysState) {                                            // Slow refresh
+        case MENUVOLTMETERACTIVE:
+        case MENUI2CSCANMONITORACTIVE:
+        case MENUPROGISPAVRACTIVE:
+          forcedisplay++;
+          break;
+        default:
+          break;
+      }
     }
   }
 
@@ -293,7 +293,7 @@ void setup() {
   Serial.begin(500000);                                           // Setup serial
   screenState = 0;
   timeoutTimer = 0;
-  oled.begin(SSD1306_SWITCHCAPVCC, OLEDADDRESS);                  // Initialize OLED
+  oled.begin(SSD1306_SWITCHCAPVCC, OLEDADDRESS);
   oled.clearDisplay();
   oled.setFont(&verdana6pt7b);
   oled.setTextSize(1);
@@ -315,6 +315,7 @@ void setup() {
   digitalWrite(PDSLAVE, HIGH);
   PullUp(false);
   analogReadAveraging(100);
+  NVIC_SET_PRIORITY(IRQ_PORTD, 17);                               // Port D is a higher priority then timers
   
   //sysState = MENUCOUNTER;                                       // Initialize default states
   sysState = MENUI2CSCAN;
@@ -323,6 +324,10 @@ void setup() {
   menuoptions = OPTIONSOK;
   options = OPTIONOK;
   forcedisplay = 1;                                               // Preload display
+  exportoption = 0;
+  logicSet = 0x11;
+  baudRate = (sizeof(baudRates)/sizeof(baudRates[0])) - 1;        // Default baudrate = max
+
   cursoron.blinkon = false;
   encoder.up = false;
   encoder.down = false;
@@ -330,19 +335,16 @@ void setup() {
   encoder.swold = true;                                           // if pull-up
   sharedNavigation();
 
-  baudRate = (sizeof(baudRates)/sizeof(baudRates[0])) - 1;        // Default baudrate = max
-  slaveTimerRunning = false;
-  attachMainInterrupts();
-  
   SPI.setMOSI(myMOSI);                                            // Readjust pins
   SPI.setMISO(myMISO);
   SPI.setSCK(mySCLK);
   SPISettings PDmicro(2000000, MSBFIRST, SPI_MODE0);              // Preset transactionsettings
   slave_exit_mode = false;                                        // Preset flags for communication
   newSPIdata_avail = false;
-  allSPIisData = false;                       
+  allSPIisData = false;   
+  slaveTimerRunning = false;
+  attachMainInterrupts();                    
   SPI.begin();
-  logicSet = 0x11;
 }
 
 //------------------------------------------------------------------------------ loop

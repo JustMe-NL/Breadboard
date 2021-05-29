@@ -25,6 +25,8 @@
 // void display7Segment()
 // void displayLogic()
 // void displayScreenSet();
+// void displayI2CMonitor()
+// void displayExport()
 
 //------------------------------------------------------------------------------ dispHeader
 void dispHeader() {
@@ -1313,6 +1315,7 @@ void displayLogic() {
   enum optionStates temp;
   temp = options;
   if (firstrun) {
+    disableGPIO();
     firstrun = false;
     encoder.sw = false;
     options = OPTIONOK;
@@ -1404,27 +1407,6 @@ void displayScreenSet() {
   if (firstrun) {
     firstrun = false;
     encoder.sw = false;
-    SPI_Out.clear();
-    houseKeeping();
-    SPI_Out.push(cmdESC_ExitCommand);
-    houseKeeping();
-    SPI_Out.push(cmdSerialPiping);
-    SPI_Out.push(modeSPI_Keyboard);
-    houseKeeping();
-    SPI_Out.push(cmdSTX_DataNext);
-    SPI_Out.push('H');
-    SPI_Out.push('e');
-    SPI_Out.push('l');
-    SPI_Out.push('l');
-    SPI_Out.push('o');
-    SPI_Out.push(' ');
-    SPI_Out.push('W');
-    SPI_Out.push('o');
-    SPI_Out.push('r');
-    SPI_Out.push('l');
-    SPI_Out.push('d');
-    SPI_Out.push('!');
-    houseKeeping();
     oled.print("klik ok to exit");
   }
 
@@ -1434,14 +1416,13 @@ void displayScreenSet() {
     forcedisplay++;
   }
 
-  oled.fillRect(0, 16, 128, 33, SSD1306_BLACK);
+  //oled.fillRect(0, 16, 128, 33, SSD1306_BLACK);
   sharedNavigation();
 }
 
 void displayI2CMonitor() {
-  //enum optionStates temp;
-  //temp = options;
-
+uint16_t copyPointer;
+float tempCalc;
 /*
   Statechanges or Timed - frequency
   Trigger @ start
@@ -1466,17 +1447,16 @@ void displayI2CMonitor() {
     PITimer1.period(255.0); 
     PITimer1.start(maxtimeCaptureInterrupt);
     bitSet(PIT_TCTRL1, 2);                                          // Chainmode enabled
-    //bitClear(PIT_TCTRL1, 1);                                        // Disable interrupts
+    //bitClear(PIT_TCTRL1, 1);                                      // Disable interrupts
     PITimer0.start(maxtimeCaptureInterrupt);
     bitClear(PIT_TCTRL0, 1);                                        // Disable interrupts
-    attachInterrupt(GPIO2, pinGPIO2Interrupt, RISING);              // SDA
+    attachInterrupt(GPIO2, pinGPIO2Interrupt, RISING);              // SCL
     attachInterrupt(I2CTRGR, pinI2CTRGRInterrupt, FALLING);         // SDA changes with high SCL
-    NVIC_SET_PRIORITY(IRQ_PORTD, 17);
   }
 
   if (encoder.sw) {
-    detachInterrupt(GPIO2);
     detachInterrupt(I2CTRGR);
+    detachInterrupt(GPIO2);
     attachMainInterrupts();
     PITimer0.stop();
     PITimer1.stop();
@@ -1484,40 +1464,156 @@ void displayI2CMonitor() {
     encoder.sw = false;
     forcedisplay++;
   }
+
+  copyPointer = CapturePointer;
+  oled.fillRect(0, 16, 128, 33, SSD1306_BLACK);
+  oled.setCursor(8, 28);
+  if (copyPointer < MAXBUFSIZE) {
+    oled.print("Buffer use: ");
+    oled.drawRect(8, 33, 112, 10, SSD1306_WHITE);
+    tempCalc = (float) copyPointer / MAXBUFSIZE * 112;
+    oled.fillRect(8, 33, (int16_t) tempCalc, 10, SSD1306_WHITE);
+  } else {
+    oled.print("Buffer full!");
+    oled.fillRect(8, 33, 112, 10, SSD1306_WHITE);
+  }
 }
 
 void displayExport() {
-  //enum optionStates temp;
-  //temp = options;
+  enum optionStates temp;
+  temp = options;
+
   if (firstrun) {
     firstrun = false;
     encoder.sw = false;
     options = OPTIONOK;
     menuoptions = OPTIONSOKSETCANCEL;
     setValue = 0;
+    cursoron.blinkrow = 28;
+  }
+
+  if (encoder.up) {
+    switch (temp) {
+      case OPTIONOK:
+        temp = OPTIONCANCEL;
+        break;
+      case OPTIONUPDOWN:
+        temp = OPTIONOK;
+        break;
+      case OPTIONSETVALUES:
+        exportoption--;
+        exportoption &= 0x07;
+        break;
+      case OPTIONCANCEL:
+        temp = OPTIONUPDOWN;
+        break;
+      default:
+        break;
+    }
+  }
+
+  if (encoder.down) {
+    switch (temp) {
+      case OPTIONOK:
+        temp = OPTIONUPDOWN;
+        break;
+      case OPTIONUPDOWN:
+        temp = OPTIONCANCEL;
+        break;
+      case OPTIONSETVALUES:
+        exportoption++;
+        exportoption &= 0x07;
+        break;
+      case OPTIONCANCEL:
+        temp = OPTIONOK;
+        break;
+      default:
+        break;
+    }
   }
 
   if (encoder.sw) {
-    options = OK;
-    encoder.sw = false;
-    forcedisplay++;
+    switch (temp) {
+      case OPTIONOK:
+        SPI_Out.clear();
+        if ((exportoption & 0x04) == 0x04) {
+          enableUSBKeyboard();
+          //allSPIisData = true;
+        } else {
+          enableUSB2Serial(modeSPI_USB);
+          allSPIisData = true;
+        }
+        switch (exportoption & 0x03) {
+          case S_RAW_WO_TIME:
+            rawI2CExport(false);
+            break;
+          case S_RAW_W_TIME:
+            rawI2CExport(true);
+            break;
+          case S_HRF:
+            I2CprotocolExport();
+            break;
+          case S_SALEAE:
+            saleaeProtocolExport();
+            break;
+        }
+        break;
+      case OPTIONUPDOWN:
+        temp = OPTIONSETVALUES;
+        cursoron.blinkon = true;
+        break;
+      case OPTIONSETVALUES:
+        cursoron.blinkon = false;
+        temp = OPTIONUPDOWN;
+        break;
+      case OPTIONCANCEL:
+        disableSlaveModes();
+        encoder.sw = false;
+        temp = CANCEL;
+        forcedisplay++;
+        break;
+      default:
+        break;
+    }
   }
+  options = temp;
 
-  oled.fillRect(0, 16, 128, 33, SSD1306_BLACK);
   sharedNavigation();
-  oled.setCursor(5, 32);
-  oled.print("Exporting...");
-  oled.display();
-
-  SPI_Out.clear();
-  //enableUSB2Serial(modeSPI_USB);
-  //allSPIisData = true;
-  disableSlaveModes();
-  //Serial.println("RAW");
-  rawI2CExport();
-  //Serial.println("Salae:");
-  //salaeProtocolExport();
-  //Serial.println("HRF");
-  I2CprotocolExport();
+  oled.fillRect(0, 16, 128, 33, SSD1306_BLACK);
+  oled.setCursor(0, 28);
+  switch(exportoption) {
+    case S_RAW_WO_TIME:
+      oled.println("To serial");
+      oled.print("RAW w/o timing");
+      break;
+    case S_RAW_W_TIME:
+      oled.println("To serial");
+      oled.print("RAW with timing");
+      break;
+    case S_HRF:
+      oled.println("To serial");
+      oled.print("Human readable");
+      break;
+    case S_SALEAE:
+      oled.println("To serial");
+      oled.print("Saleae protocol");
+      break;
+    case K_RAW_WO_TIME:
+      oled.println("As keyboard");
+      oled.print("RAW w/o timing");
+      break;
+    case K_RAW_W_TIME:
+      oled.println("As keyboard");
+      oled.print("RAW with timing");
+      break;
+    case K_HRF:
+      oled.println("As keyboard");
+      oled.print("Human readable");
+      break;
+    case K_SALEAE:
+      oled.println("As keyboard");
+      oled.print("Saleae protocol");
+      break;
+  } 
 }
 

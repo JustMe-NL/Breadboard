@@ -24,15 +24,20 @@
 // void rawI2CExport()
 
 
+//------------------------------------------------------------------------------ Enable interrupts
 void attachMainInterrupts() {
+  //bitSet(I2C0_C1, 6);                                           // I2C_C1_IICIE
   attachInterrupt(digitalPinToInterrupt(EXPINT), expanderInterrupt, FALLING);
   attachInterrupt(digitalPinToInterrupt(PDINT), pdInterrupt, CHANGE);
 }
 
+//------------------------------------------------------------------------------ Disable interrupts
 void detachMainInterrupts() {
+  bitClear(I2C0_C1, 6);                                           // I2C_C1_IICIE
   detachInterrupt(EXPINT);
   detachInterrupt(PDINT);
 }
+
 //------------------------------------------------------------------------------ Enable GPIO
 void enableGPIO() {
 #ifdef debug
@@ -87,6 +92,7 @@ void enableUSBKeyboard() {
   SPI_Out.push(cmdSerialPiping);
   SPI_Out.push(modeSPI_Keyboard);
   houseKeeping();
+  delay(5000);
 }
 
 //------------------------------------------------------------------------------ Disable all piping
@@ -197,6 +203,7 @@ void changePin(uint8_t pin, bool state) {
   }
 }
 
+//------------------------------------------------------------------------------ show logic pin statuses
 void showlogicPins(uint8_t myx, uint8_t curvalue, bool showPin3) {
   ByteBits_t value;
   value.all = curvalue;
@@ -222,20 +229,32 @@ uint8_t calculateLogic(uint8_t myblocks, uint8_t myvalue, uint8_t myx) {
   ByteBits_t logic;
   logic.all = myvalue;
   switch(myblocks) {
-    case INVERT: // 0 & 2 =IN, 1 & 3 = OUT
-      logic.bit1 = !logic.bit0;
-      logic.bit3 = !logic.bit2;
+    case INVERT: // 0->2 1->3
+      oled.drawBitmap(myx + 0, 16, bmapNot, 64, 32, SSD1306_WHITE);       // Base Not
+      oled.drawBitmap(myx + 14, 22, bmap1, 3, 5, SSD1306_WHITE);          // pin numbers
+      oled.drawBitmap(myx + 14, 41, bmap2, 3, 5, SSD1306_WHITE);
+      oled.drawBitmap(myx + 50, 22, bmap3, 3, 5, SSD1306_WHITE);
+      oled.drawBitmap(myx + 50, 41, bmap4, 3, 5, SSD1306_WHITE);
+      logic.bit2 = !logic.bit0;
+      logic.bit3 = !logic.bit1;
+      if (logic.bit0) { oled.fillRect(myx + 3, 18, 5, 5, SSD1306_WHITE); }  // pin statuses
+      if (logic.bit1) { oled.fillRect(myx + 3, 37, 5, 5, SSD1306_WHITE); }
+      if (logic.bit2) { oled.fillRect(myx + 56, 18, 5, 5, SSD1306_WHITE); }
+      if (logic.bit3) { oled.fillRect(myx + 56, 37, 5, 5, SSD1306_WHITE); }
+      logic.all |= 0b00000011;                                            // Make sure the inputs stay inputs
       break;
     case AND2:   // 3 = OUT
       oled.drawBitmap(myx + 0, 16, bmapAnd, 64, 32, SSD1306_WHITE);       // Base AND
       oled.fillRect(myx + 0, 28, 19, 9, SSD1306_BLACK);  
       logic.bit3 = (logic.bit0 & logic.bit1);
       showlogicPins(myx, logic.all, false);
+      logic.all |= 0b00000011;
       break;
     case AND3:
       oled.drawBitmap(myx + 0, 16, bmapAnd, 64, 32, SSD1306_WHITE);       // Base AND
       logic.bit3 = (logic.bit0 & logic.bit1 & logic.bit2);
       showlogicPins(myx, logic.all, true);
+      logic.all |= 0b00000111;
       break;
     case NAND2:
       oled.drawBitmap(myx + 0, 16, bmapAnd, 64, 32, SSD1306_WHITE);       // Base AND
@@ -244,6 +263,7 @@ uint8_t calculateLogic(uint8_t myblocks, uint8_t myvalue, uint8_t myx) {
       oled.drawCircle(myx + 48, 29, 3, SSD1306_WHITE);                    // add invert
       logic.bit3 = ~(logic.bit0 & logic.bit1);
       showlogicPins(myx, logic.all, false);
+      logic.all |= 0b00000011;
       break;
     case NAND3:
       oled.drawBitmap(myx + 0, 16, bmapAnd, 64, 32, SSD1306_WHITE);       // Base AND
@@ -251,6 +271,7 @@ uint8_t calculateLogic(uint8_t myblocks, uint8_t myvalue, uint8_t myx) {
       oled.drawCircle(myx + 48, 29, 3, SSD1306_WHITE);                    // add invert
       logic.bit3 = ~(logic.bit0 & logic.bit1 & logic.bit2);
       showlogicPins(myx, logic.all, true);
+      logic.all |= 0b00000111;
       break;
     case OR2:
       oled.drawBitmap(myx + 0, 16, bmapOr, 64, 32, SSD1306_WHITE);        // Base OR
@@ -258,11 +279,13 @@ uint8_t calculateLogic(uint8_t myblocks, uint8_t myvalue, uint8_t myx) {
       oled.fillRect(myx + 19, 30, 7, 1, SSD1306_BLACK); 
       logic.bit3 = (logic.bit0 | logic.bit1);
       showlogicPins(myx, logic.all, false);
+      logic.all |= 0b00000011;
       break;
     case OR3:
       oled.drawBitmap(myx + 0, 16, bmapOr, 64, 32, SSD1306_WHITE);   
       logic.bit3 = (logic.bit0 | logic.bit1 | logic.bit2);
       showlogicPins(myx, logic.all, true);
+      logic.all |= 0b00000111;
       break;
     case NOR2:
       oled.drawBitmap(myx + 0, 16, bmapOr, 64, 32, SSD1306_WHITE);        // Base OR
@@ -272,6 +295,7 @@ uint8_t calculateLogic(uint8_t myblocks, uint8_t myvalue, uint8_t myx) {
       oled.drawCircle(myx + 48, 29, 3, SSD1306_WHITE);                    // add invert
       logic.bit3 = ~(logic.bit0 | logic.bit1);
       showlogicPins(myx, logic.all, false);
+      logic.all |= 0b00000011;
       break;
     case NOR3:
       oled.drawBitmap(myx + 0, 16, bmapOr, 64, 32, SSD1306_WHITE);        // Base OR
@@ -279,6 +303,7 @@ uint8_t calculateLogic(uint8_t myblocks, uint8_t myvalue, uint8_t myx) {
       oled.drawCircle(myx + 48, 29, 3, SSD1306_WHITE);                    // add invert
       logic.bit3 = ~(logic.bit0 | logic.bit1 | logic.bit2);
       showlogicPins(myx, logic.all, true);
+      logic.all |= 0b00000111;
       break;
     case XOR2:
       oled.drawBitmap(myx + 0, 16, bmapXor, 64, 32, SSD1306_WHITE);       // Base OR
@@ -286,11 +311,13 @@ uint8_t calculateLogic(uint8_t myblocks, uint8_t myvalue, uint8_t myx) {
       oled.fillRect(myx + 19, 30, 7, 1, SSD1306_BLACK);
       logic.bit3 = (logic.bit0 ^ logic.bit1);
       showlogicPins(myx, logic.all, false);
+      logic.all |= 0b00000011;
       break;
     case XOR3:
       oled.drawBitmap(myx + 0, 16, bmapXor, 64, 32, SSD1306_WHITE);       // Base OR
       logic.bit3 = (logic.bit0 ^ logic.bit1 ^ logic.bit2);
       showlogicPins(myx, logic.all, true);
+      logic.all |= 0b00000111;
       break;
     case SRFF:  // 0=S, 1=R, 2=Q, 3=^Q
       oled.drawBitmap(myx + 0, 16, bmapFF, 64, 32, SSD1306_WHITE);       // Base FF
@@ -305,6 +332,7 @@ uint8_t calculateLogic(uint8_t myblocks, uint8_t myvalue, uint8_t myx) {
       if (logic.bit1) { oled.fillRect(myx + 3, 37, 5, 5, SSD1306_WHITE); }
       if (logic.bit2) { oled.fillRect(myx + 56, 18, 5, 5, SSD1306_WHITE); }
       if (logic.bit3) { oled.fillRect(myx + 56, 37, 5, 5, SSD1306_WHITE); }
+      logic.all |= 0b00000011;
       break;
     case JKFF:  // 0=J, 1=K, 2=C, 3=Q, 4=^Q, 7=Old C
       oled.drawBitmap(myx + 0, 16, bmapFF, 64, 32, SSD1306_WHITE);       // Base FF
@@ -324,9 +352,9 @@ uint8_t calculateLogic(uint8_t myblocks, uint8_t myvalue, uint8_t myx) {
       if (logic.bit2) { oled.fillRect(myx + 3, 28, 5, 5, SSD1306_WHITE); }
       if (logic.bit3) { oled.fillRect(myx + 56, 18, 5, 5, SSD1306_WHITE); } 
       if (logic.bit4) { oled.fillRect(myx + 56, 37, 5, 5, SSD1306_WHITE); }
+      logic.all |= 0b00000111;
       break;
-  }
-  logic.all |= 0x07;      // Make sure the inputs stay inputs
+  }   
   return logic.all;
 }
 
@@ -337,14 +365,18 @@ void processLogic() {
   templogic = logicSet & 0x0F;
   writeByte = 0;
   if (templogic > 0) { 
-    result = calculateLogic(templogic, bytePins, 0); 
+    result = calculateLogic(templogic, bytePins, 0);
     writeByte = result;
   }
   if (templogic < JKFF) {
     templogic = (logicSet & 0xF0) >> 4;
     result = (bytePins & 0xF0) >> 4;
+Serial.print("Templogic highbyte: ");
+Serial.print(templogic, HEX);
+Serial.print(", highbyte pins:");
+Serial.println(result, HEX);
     if (templogic > 0) { 
-      result = calculateLogic(templogic, result, 64); 
+      result = calculateLogic(templogic, result, 64);
       writeByte |= (result << 4);
     }
   }
@@ -370,6 +402,7 @@ void checkScreen() {
   }
 }
 
+//------------------------------------------------------------------------------ print 2 Serial or SPI
 void printTo(char bufferToPrint[], uint8_t sizeOfBuffer) {
   for (uint8_t i = 0; i < sizeOfBuffer; i++) {
     if (bufferToPrint[i] == 0x00) {
@@ -377,6 +410,7 @@ void printTo(char bufferToPrint[], uint8_t sizeOfBuffer) {
     }
     if (allSPIisData) {
       SPI_Out.push(bufferToPrint[i]);
+      //Serial.write(bufferToPrint[i]);
     } else {
       Serial.write(bufferToPrint[i]);
     }
@@ -385,7 +419,7 @@ void printTo(char bufferToPrint[], uint8_t sizeOfBuffer) {
 
 
 //------------------------------------------------------------------------------ Export I2C capture in Salea format
-void salaeProtocolExport() {
+void saleaeProtocolExport() {
 // Time [s],Packet ID,Address,Data,Read/Write,ACK/NAK
 // 9.85e-005,0,0xD0,0x72,Write,ACK
 // 0.000299,1,0xD1,0x00,Read,ACK
@@ -638,18 +672,25 @@ bool acknak;
   houseKeeping();
 }
 
-void rawI2CExport() {
-char buffer[15];
+void rawI2CExport(bool timinginfo) {
+char buffer[20];
 double elapsedTime, startTime;
 
-  strcpy (buffer, "t[s],SDA,SCL\r\n");
-  printTo(buffer, 14);
+  if (timinginfo) {
+    strcpy (buffer, "t[s],SDA,SCL\r\n");
+    printTo(buffer, 14);
+  } else {
+    strcpy (buffer, "SDA,SCL\r\n");
+    printTo(buffer, 9);
+  }
   houseKeeping();
   startTime = (double) (CaptureMinBuffer[0] * PIT_LDVAL0) + CaptureSecBuffer[0];
   for (uint16_t i = 0; i < CapturePointer; i++) {
-    elapsedTime = (double) (startTime - ((CaptureMinBuffer[i] * PIT_LDVAL0) + CaptureSecBuffer[i])) / F_BUS;
-    snprintf(buffer, 80, "%.9f,", elapsedTime);
-    printTo(buffer, sizeof(buffer));
+    if (timinginfo) {
+      elapsedTime = (double) (startTime - ((CaptureMinBuffer[i] * PIT_LDVAL0) + CaptureSecBuffer[i])) / F_BUS;
+      snprintf(buffer, 20, "%.9f,", elapsedTime);
+      printTo(buffer, sizeof(buffer));
+    }
     if ((CaptureDataBuffer[i] & 0x80) == 0x80) {
       strcpy (buffer, "1,");
     } else {
